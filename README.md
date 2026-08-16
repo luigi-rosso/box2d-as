@@ -142,7 +142,8 @@ destroy churn, bullets/continuous, plus a determinism double-run) stepped for
 120-320 steps each, comparing every body's transform and velocity per step and
 FNV-1a hashes of contact manifolds+impulses, island/solver-set/graph-color
 bookkeeping, and event buffers. Current totals: A+B 813,926 checks and C
-1,046,110 checks, all green on both the debug and -O2 rasc builds.
+1,046,110 checks, all green on the debug and -O2 rasc builds in both
+backends (scalar and `--enable-simd`), 7,440,144 checks per full run.
 
 ## Phase D: benchmark and performance pass
 
@@ -176,3 +177,36 @@ every step costs 98 ms/run, every 4/16/64 steps 42/27/23 ms, between runs only
 AS with the stub runtime (and `-O2` + wasm-opt via `dangerouslyFast`), so the
 shipped configuration is stub + arena rewind; TCMS + periodic collect remains
 the verify-harness configuration where memory, not speed, is the constraint.
+
+## Dual-artifact simd backend
+
+The wide solver ops in `contact_solver.as` carry two bodies behind
+`if (ASC_FEATURE_SIMD)`: the scalar per-lane loops (unchanged) and a v128
+backend that loads each `b2FloatW`'s four fields as one `v128` and uses
+f32x4 ops whose per-lane semantics match the scalar bodies bit-exactly
+(mul-then-add instead of fma, compare+bitselect instead of f32x4.min/max,
+which diverge on NaN and signed-zero lanes). Masks hold all-ones lanes
+instead of 1.0 and are only ever consumed by blend/or/allzero. Structure is
+untouched: same stage order, lane packing, scratch objects, and allocation
+pattern; gather/scatter stay per-lane since body states are pointer-chased.
+
+rasc folds the constant branch, so the same source emits either module:
+plain builds are byte-identical scalar, `--enable-simd` (standalone rasc)
+or `RIVE_RASC_SIMD=1` (bake) emit the wide twin. The full harness gates
+both backends bit-exactly against the same scalar-generated C vectors.
+
+The WAMR fast interp refuses the wide module by design
+(`WASM module load failed: v128 value type requires simd feature`), so the
+simd artifact ships through the AOT lane (wamrc; simd is default-on for
+aarch64) while the interp keeps the scalar bake. Same day, same machine,
+checksum bits 40549f023f991c00 in every lane:
+
+| lane              | scalar    | simd     |
+| ----------------- | --------- | -------- |
+| WAMR fast-interp  | 102.1 ms  | refused  |
+| WAMR AOT sw       | 13.8 ms   | 9.0 ms   |
+| WAMR AOT hw       | 10.6 ms   | 7.3 ms   |
+| V8 (node)         | 9.5 ms    | 7.1 ms   |
+
+The wide module is also smaller (bench.wasm 461,535 -> 447,177 bytes; the
+v128 op bodies replace four lanes of code).

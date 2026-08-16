@@ -1,8 +1,9 @@
 #!/bin/zsh
 # Phase A+B+C differential verification: compiles the C reference generators
 # against the canonical box2d sources, regenerates the vectors, compiles the
-# AS drivers with rasc (debug and -O2), and runs the node comparison against
-# both builds.
+# AS drivers with rasc (debug and -O2, scalar and --enable-simd), and runs
+# the node comparison against all four builds. The simd modules must match
+# the same scalar-generated vectors bit-exactly.
 set -e
 cd "$(dirname "$0")"
 BOX2D_SRC=${BOX2D_SRC:-$HOME/Projects/box2d}
@@ -66,7 +67,10 @@ node verify.mjs
 node verifyC.mjs
 
 # Bench lane modules (not run here; see bench_v8.mjs / bench_cadence.mjs).
+# bench.wasm is the shipping scalar artifact; bench_simd.wasm is the wide
+# twin for the AOT and V8 lanes (the WAMR fast interp refuses it).
 "$RASC" ../bench_stub.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub -O2 -o bench.wasm
+"$RASC" ../bench_stub.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub -O2 --enable-simd -o bench_simd.wasm
 "$RASC" bench_minimal.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime minimal -O2 -o bench_minimal.wasm
 
 "$RASC" ../_verifyA.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub -O2 -o verifyA.wasm
@@ -77,4 +81,20 @@ echo "== -O2 rasc build =="
 node verify.mjs
 node verifyC.mjs
 
-echo "phase A+B+C verification: all green"
+"$RASC" ../_verifyA.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub --enable-simd -o verifyA.wasm
+"$RASC" ../_verifyB.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub --enable-simd -o verifyB.wasm
+"$RASC" ../_verifyC.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime minimal --enable-simd -o verifyC.wasm
+
+echo "== debug rasc simd build =="
+node verify.mjs
+node verifyC.mjs
+
+"$RASC" ../_verifyA.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub --enable-simd -O2 -o verifyA.wasm
+"$RASC" ../_verifyB.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub --enable-simd -O2 -o verifyB.wasm
+"$RASC" ../_verifyC.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime minimal --enable-simd -O2 -o verifyC.wasm
+
+echo "== -O2 rasc simd build =="
+node verify.mjs
+node verifyC.mjs
+
+echo "phase A+B+C verification: all green, scalar and simd"

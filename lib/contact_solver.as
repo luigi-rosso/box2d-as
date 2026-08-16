@@ -519,12 +519,22 @@ export function b2StoreOverflowImpulses(context: b2StepContext): void {
 export const B2_SIMD_WIDTH: i32 = 4;
 export const B2_SIMD_SHIFT: i32 = 2;
 
-// scalar math
+// Wide math. Lanes live in the four f32 fields either way; under
+// ASC_FEATURE_SIMD the W ops load the 16 bytes as one v128 and use ops
+// whose per-lane semantics match the scalar bodies bit-exactly, masks
+// excepted: compares hold all-ones lanes instead of 1.0, and only
+// blend/or/allzero ever consume them.
 export class b2FloatW {
     x: f32 = 0;
     y: f32 = 0;
     z: f32 = 0;
     w: f32 = 0;
+}
+
+// @ts-ignore: decorator
+@inline
+function wptr(a: b2FloatW): usize {
+    return changetype<usize>(a);
 }
 
 // Wide vec2
@@ -554,111 +564,240 @@ function b2ZeroW(): b2FloatW {
 }
 
 function b2SplatW(scalar: f32): b2FloatW {
-    return b2MakeW(scalar, scalar, scalar, scalar);
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r), f32x4.splat(scalar));
+        return r;
+    } else {
+        return b2MakeW(scalar, scalar, scalar, scalar);
+    }
 }
 
 function b2AddW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    return b2MakeW(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r), f32x4.add(load<v128>(wptr(a)), load<v128>(wptr(b))));
+        return r;
+    } else {
+        return b2MakeW(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
+    }
 }
 
 function b2SubW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    return b2MakeW(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r), f32x4.sub(load<v128>(wptr(a)), load<v128>(wptr(b))));
+        return r;
+    } else {
+        return b2MakeW(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
+    }
 }
 
 function b2MulW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    return b2MakeW(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r), f32x4.mul(load<v128>(wptr(a)), load<v128>(wptr(b))));
+        return r;
+    } else {
+        return b2MakeW(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
+    }
 }
 
 function b2MulAddW(a: b2FloatW, b: b2FloatW, c: b2FloatW): b2FloatW {
-    return b2MakeW(a.x + b.x * c.x, a.y + b.y * c.y, a.z + b.z * c.z, a.w + b.w * c.w);
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        // Separate mul then add keeps the scalar rounding; wasm simd has no fma.
+        store<v128>(wptr(r),
+                    f32x4.add(load<v128>(wptr(a)),
+                              f32x4.mul(load<v128>(wptr(b)), load<v128>(wptr(c)))));
+        return r;
+    } else {
+        return b2MakeW(a.x + b.x * c.x, a.y + b.y * c.y, a.z + b.z * c.z, a.w + b.w * c.w);
+    }
 }
 
 function b2MulSubW(a: b2FloatW, b: b2FloatW, c: b2FloatW): b2FloatW {
-    return b2MakeW(a.x - b.x * c.x, a.y - b.y * c.y, a.z - b.z * c.z, a.w - b.w * c.w);
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r),
+                    f32x4.sub(load<v128>(wptr(a)),
+                              f32x4.mul(load<v128>(wptr(b)), load<v128>(wptr(c)))));
+        return r;
+    } else {
+        return b2MakeW(a.x - b.x * c.x, a.y - b.y * c.y, a.z - b.z * c.z, a.w - b.w * c.w);
+    }
 }
 
+// min/max keep the scalar ternaries via compare+bitselect; f32x4.min/max
+// diverge from them on NaN and signed-zero lanes.
 function b2MinW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    let r = new b2FloatW();
-    r.x = a.x <= b.x ? a.x : b.x;
-    r.y = a.y <= b.y ? a.y : b.y;
-    r.z = a.z <= b.z ? a.z : b.z;
-    r.w = a.w <= b.w ? a.w : b.w;
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        let va = load<v128>(wptr(a));
+        let vb = load<v128>(wptr(b));
+        store<v128>(wptr(r), v128.bitselect(va, vb, f32x4.le(va, vb)));
+        return r;
+    } else {
+        let r = new b2FloatW();
+        r.x = a.x <= b.x ? a.x : b.x;
+        r.y = a.y <= b.y ? a.y : b.y;
+        r.z = a.z <= b.z ? a.z : b.z;
+        r.w = a.w <= b.w ? a.w : b.w;
+        return r;
+    }
 }
 
 function b2MaxW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    let r = new b2FloatW();
-    r.x = a.x >= b.x ? a.x : b.x;
-    r.y = a.y >= b.y ? a.y : b.y;
-    r.z = a.z >= b.z ? a.z : b.z;
-    r.w = a.w >= b.w ? a.w : b.w;
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        let va = load<v128>(wptr(a));
+        let vb = load<v128>(wptr(b));
+        store<v128>(wptr(r), v128.bitselect(va, vb, f32x4.ge(va, vb)));
+        return r;
+    } else {
+        let r = new b2FloatW();
+        r.x = a.x >= b.x ? a.x : b.x;
+        r.y = a.y >= b.y ? a.y : b.y;
+        r.z = a.z >= b.z ? a.z : b.z;
+        r.w = a.w >= b.w ? a.w : b.w;
+        return r;
+    }
 }
 
 // a = clamp(a, -b, b)
 function b2SymClampW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    let r = new b2FloatW();
-    r.x = b2ClampFloat(a.x, -b.x, b.x);
-    r.y = b2ClampFloat(a.y, -b.y, b.y);
-    r.z = b2ClampFloat(a.z, -b.z, b.z);
-    r.w = b2ClampFloat(a.w, -b.w, b.w);
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        let va = load<v128>(wptr(a));
+        let hi = load<v128>(wptr(b));
+        let lo = f32x4.neg(hi);
+        let t = v128.bitselect(hi, va, f32x4.gt(va, hi));
+        store<v128>(wptr(r), v128.bitselect(lo, t, f32x4.lt(va, lo)));
+        return r;
+    } else {
+        let r = new b2FloatW();
+        r.x = b2ClampFloat(a.x, -b.x, b.x);
+        r.y = b2ClampFloat(a.y, -b.y, b.y);
+        r.z = b2ClampFloat(a.z, -b.z, b.z);
+        r.w = b2ClampFloat(a.w, -b.w, b.w);
+        return r;
+    }
 }
 
+// Mask ops: wide lanes are all-ones where scalar lanes are 1.0; both read
+// as true everywhere masks are consumed.
 function b2OrW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    let r = new b2FloatW();
-    r.x = a.x != 0.0 || b.x != 0.0 ? <f32>1.0 : <f32>0.0;
-    r.y = a.y != 0.0 || b.y != 0.0 ? <f32>1.0 : <f32>0.0;
-    r.z = a.z != 0.0 || b.z != 0.0 ? <f32>1.0 : <f32>0.0;
-    r.w = a.w != 0.0 || b.w != 0.0 ? <f32>1.0 : <f32>0.0;
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r), v128.or(load<v128>(wptr(a)), load<v128>(wptr(b))));
+        return r;
+    } else {
+        let r = new b2FloatW();
+        r.x = a.x != 0.0 || b.x != 0.0 ? <f32>1.0 : <f32>0.0;
+        r.y = a.y != 0.0 || b.y != 0.0 ? <f32>1.0 : <f32>0.0;
+        r.z = a.z != 0.0 || b.z != 0.0 ? <f32>1.0 : <f32>0.0;
+        r.w = a.w != 0.0 || b.w != 0.0 ? <f32>1.0 : <f32>0.0;
+        return r;
+    }
 }
 
 function b2GreaterThanW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    let r = new b2FloatW();
-    r.x = a.x > b.x ? <f32>1.0 : <f32>0.0;
-    r.y = a.y > b.y ? <f32>1.0 : <f32>0.0;
-    r.z = a.z > b.z ? <f32>1.0 : <f32>0.0;
-    r.w = a.w > b.w ? <f32>1.0 : <f32>0.0;
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r), f32x4.gt(load<v128>(wptr(a)), load<v128>(wptr(b))));
+        return r;
+    } else {
+        let r = new b2FloatW();
+        r.x = a.x > b.x ? <f32>1.0 : <f32>0.0;
+        r.y = a.y > b.y ? <f32>1.0 : <f32>0.0;
+        r.z = a.z > b.z ? <f32>1.0 : <f32>0.0;
+        r.w = a.w > b.w ? <f32>1.0 : <f32>0.0;
+        return r;
+    }
 }
 
 function b2EqualsW(a: b2FloatW, b: b2FloatW): b2FloatW {
-    let r = new b2FloatW();
-    r.x = a.x == b.x ? <f32>1.0 : <f32>0.0;
-    r.y = a.y == b.y ? <f32>1.0 : <f32>0.0;
-    r.z = a.z == b.z ? <f32>1.0 : <f32>0.0;
-    r.w = a.w == b.w ? <f32>1.0 : <f32>0.0;
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r), f32x4.eq(load<v128>(wptr(a)), load<v128>(wptr(b))));
+        return r;
+    } else {
+        let r = new b2FloatW();
+        r.x = a.x == b.x ? <f32>1.0 : <f32>0.0;
+        r.y = a.y == b.y ? <f32>1.0 : <f32>0.0;
+        r.z = a.z == b.z ? <f32>1.0 : <f32>0.0;
+        r.w = a.w == b.w ? <f32>1.0 : <f32>0.0;
+        return r;
+    }
 }
 
 function b2AllZeroW(a: b2FloatW): bool {
-    return a.x == 0.0 && a.y == 0.0 && a.z == 0.0 && a.w == 0.0;
+    if (ASC_FEATURE_SIMD) {
+        return i32x4.all_true(f32x4.eq(load<v128>(wptr(a)), f32x4.splat(0)));
+    } else {
+        return a.x == 0.0 && a.y == 0.0 && a.z == 0.0 && a.w == 0.0;
+    }
 }
 
 // component-wise returns mask ? b : a
 function b2BlendW(a: b2FloatW, b: b2FloatW, mask: b2FloatW): b2FloatW {
-    let r = new b2FloatW();
-    r.x = mask.x != 0.0 ? b.x : a.x;
-    r.y = mask.y != 0.0 ? b.y : a.y;
-    r.z = mask.z != 0.0 ? b.z : a.z;
-    r.w = mask.w != 0.0 ? b.w : a.w;
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r),
+                    v128.bitselect(load<v128>(wptr(b)),
+                                   load<v128>(wptr(a)),
+                                   load<v128>(wptr(mask))));
+        return r;
+    } else {
+        let r = new b2FloatW();
+        r.x = mask.x != 0.0 ? b.x : a.x;
+        r.y = mask.y != 0.0 ? b.y : a.y;
+        r.z = mask.z != 0.0 ? b.z : a.z;
+        r.w = mask.w != 0.0 ? b.w : a.w;
+        return r;
+    }
 }
 
 function b2DotW(a: b2Vec2W, b: b2Vec2W): b2FloatW {
-    return b2AddW(b2MulW(a.X, b.X), b2MulW(a.Y, b.Y));
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r),
+                    f32x4.add(f32x4.mul(load<v128>(wptr(a.X)), load<v128>(wptr(b.X))),
+                              f32x4.mul(load<v128>(wptr(a.Y)), load<v128>(wptr(b.Y)))));
+        return r;
+    } else {
+        return b2AddW(b2MulW(a.X, b.X), b2MulW(a.Y, b.Y));
+    }
 }
 
 function b2CrossW(a: b2Vec2W, b: b2Vec2W): b2FloatW {
-    return b2SubW(b2MulW(a.X, b.Y), b2MulW(a.Y, b.X));
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2FloatW();
+        store<v128>(wptr(r),
+                    f32x4.sub(f32x4.mul(load<v128>(wptr(a.X)), load<v128>(wptr(b.Y))),
+                              f32x4.mul(load<v128>(wptr(a.Y)), load<v128>(wptr(b.X)))));
+        return r;
+    } else {
+        return b2SubW(b2MulW(a.X, b.Y), b2MulW(a.Y, b.X));
+    }
 }
 
 function b2RotateVectorW(q: b2RotW, v: b2Vec2W): b2Vec2W {
-    let r = new b2Vec2W();
-    r.X = b2SubW(b2MulW(q.C, v.X), b2MulW(q.S, v.Y));
-    r.Y = b2AddW(b2MulW(q.S, v.X), b2MulW(q.C, v.Y));
-    return r;
+    if (ASC_FEATURE_SIMD) {
+        let r = new b2Vec2W();
+        let c = load<v128>(wptr(q.C));
+        let s = load<v128>(wptr(q.S));
+        let vx = load<v128>(wptr(v.X));
+        let vy = load<v128>(wptr(v.Y));
+        store<v128>(wptr(r.X), f32x4.sub(f32x4.mul(c, vx), f32x4.mul(s, vy)));
+        store<v128>(wptr(r.Y), f32x4.add(f32x4.mul(s, vx), f32x4.mul(c, vy)));
+        return r;
+    } else {
+        let r = new b2Vec2W();
+        r.X = b2SubW(b2MulW(q.C, v.X), b2MulW(q.S, v.Y));
+        r.Y = b2AddW(b2MulW(q.S, v.X), b2MulW(q.C, v.Y));
+        return r;
+    }
 }
 
 // C accesses lanes through float pointer casts.
@@ -696,100 +835,178 @@ function b2SetLaneW(a: b2FloatW, lane: i32, value: f32): void {
 // caller-owned scratch, so dst may alias any operand. Values and op order
 // match the pure ops exactly; only the per-op allocation goes away.
 function b2CopyW(dst: b2FloatW, a: b2FloatW): void {
-    dst.x = a.x;
-    dst.y = a.y;
-    dst.z = a.z;
-    dst.w = a.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst), load<v128>(wptr(a)));
+    } else {
+        dst.x = a.x;
+        dst.y = a.y;
+        dst.z = a.z;
+        dst.w = a.w;
+    }
 }
 
 function b2SetZeroW(dst: b2FloatW): void {
-    dst.x = 0.0;
-    dst.y = 0.0;
-    dst.z = 0.0;
-    dst.w = 0.0;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst), f32x4.splat(0));
+    } else {
+        dst.x = 0.0;
+        dst.y = 0.0;
+        dst.z = 0.0;
+        dst.w = 0.0;
+    }
 }
 
 function b2AddWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW): void {
-    dst.x = a.x + b.x;
-    dst.y = a.y + b.y;
-    dst.z = a.z + b.z;
-    dst.w = a.w + b.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst), f32x4.add(load<v128>(wptr(a)), load<v128>(wptr(b))));
+    } else {
+        dst.x = a.x + b.x;
+        dst.y = a.y + b.y;
+        dst.z = a.z + b.z;
+        dst.w = a.w + b.w;
+    }
 }
 
 function b2SubWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW): void {
-    dst.x = a.x - b.x;
-    dst.y = a.y - b.y;
-    dst.z = a.z - b.z;
-    dst.w = a.w - b.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst), f32x4.sub(load<v128>(wptr(a)), load<v128>(wptr(b))));
+    } else {
+        dst.x = a.x - b.x;
+        dst.y = a.y - b.y;
+        dst.z = a.z - b.z;
+        dst.w = a.w - b.w;
+    }
 }
 
 function b2MulWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW): void {
-    dst.x = a.x * b.x;
-    dst.y = a.y * b.y;
-    dst.z = a.z * b.z;
-    dst.w = a.w * b.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst), f32x4.mul(load<v128>(wptr(a)), load<v128>(wptr(b))));
+    } else {
+        dst.x = a.x * b.x;
+        dst.y = a.y * b.y;
+        dst.z = a.z * b.z;
+        dst.w = a.w * b.w;
+    }
 }
 
 function b2MulAddWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW, c: b2FloatW): void {
-    dst.x = a.x + b.x * c.x;
-    dst.y = a.y + b.y * c.y;
-    dst.z = a.z + b.z * c.z;
-    dst.w = a.w + b.w * c.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst),
+                    f32x4.add(load<v128>(wptr(a)),
+                              f32x4.mul(load<v128>(wptr(b)), load<v128>(wptr(c)))));
+    } else {
+        dst.x = a.x + b.x * c.x;
+        dst.y = a.y + b.y * c.y;
+        dst.z = a.z + b.z * c.z;
+        dst.w = a.w + b.w * c.w;
+    }
 }
 
 function b2MulSubWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW, c: b2FloatW): void {
-    dst.x = a.x - b.x * c.x;
-    dst.y = a.y - b.y * c.y;
-    dst.z = a.z - b.z * c.z;
-    dst.w = a.w - b.w * c.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst),
+                    f32x4.sub(load<v128>(wptr(a)),
+                              f32x4.mul(load<v128>(wptr(b)), load<v128>(wptr(c)))));
+    } else {
+        dst.x = a.x - b.x * c.x;
+        dst.y = a.y - b.y * c.y;
+        dst.z = a.z - b.z * c.z;
+        dst.w = a.w - b.w * c.w;
+    }
 }
 
 function b2MinWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW): void {
-    dst.x = a.x <= b.x ? a.x : b.x;
-    dst.y = a.y <= b.y ? a.y : b.y;
-    dst.z = a.z <= b.z ? a.z : b.z;
-    dst.w = a.w <= b.w ? a.w : b.w;
+    if (ASC_FEATURE_SIMD) {
+        let va = load<v128>(wptr(a));
+        let vb = load<v128>(wptr(b));
+        store<v128>(wptr(dst), v128.bitselect(va, vb, f32x4.le(va, vb)));
+    } else {
+        dst.x = a.x <= b.x ? a.x : b.x;
+        dst.y = a.y <= b.y ? a.y : b.y;
+        dst.z = a.z <= b.z ? a.z : b.z;
+        dst.w = a.w <= b.w ? a.w : b.w;
+    }
 }
 
 function b2MaxWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW): void {
-    dst.x = a.x >= b.x ? a.x : b.x;
-    dst.y = a.y >= b.y ? a.y : b.y;
-    dst.z = a.z >= b.z ? a.z : b.z;
-    dst.w = a.w >= b.w ? a.w : b.w;
+    if (ASC_FEATURE_SIMD) {
+        let va = load<v128>(wptr(a));
+        let vb = load<v128>(wptr(b));
+        store<v128>(wptr(dst), v128.bitselect(va, vb, f32x4.ge(va, vb)));
+    } else {
+        dst.x = a.x >= b.x ? a.x : b.x;
+        dst.y = a.y >= b.y ? a.y : b.y;
+        dst.z = a.z >= b.z ? a.z : b.z;
+        dst.w = a.w >= b.w ? a.w : b.w;
+    }
 }
 
 function b2SymClampWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW): void {
-    dst.x = b2ClampFloat(a.x, -b.x, b.x);
-    dst.y = b2ClampFloat(a.y, -b.y, b.y);
-    dst.z = b2ClampFloat(a.z, -b.z, b.z);
-    dst.w = b2ClampFloat(a.w, -b.w, b.w);
+    if (ASC_FEATURE_SIMD) {
+        let va = load<v128>(wptr(a));
+        let hi = load<v128>(wptr(b));
+        let lo = f32x4.neg(hi);
+        let t = v128.bitselect(hi, va, f32x4.gt(va, hi));
+        store<v128>(wptr(dst), v128.bitselect(lo, t, f32x4.lt(va, lo)));
+    } else {
+        dst.x = b2ClampFloat(a.x, -b.x, b.x);
+        dst.y = b2ClampFloat(a.y, -b.y, b.y);
+        dst.z = b2ClampFloat(a.z, -b.z, b.z);
+        dst.w = b2ClampFloat(a.w, -b.w, b.w);
+    }
 }
 
 function b2GreaterThanWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW): void {
-    dst.x = a.x > b.x ? <f32>1.0 : <f32>0.0;
-    dst.y = a.y > b.y ? <f32>1.0 : <f32>0.0;
-    dst.z = a.z > b.z ? <f32>1.0 : <f32>0.0;
-    dst.w = a.w > b.w ? <f32>1.0 : <f32>0.0;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst), f32x4.gt(load<v128>(wptr(a)), load<v128>(wptr(b))));
+    } else {
+        dst.x = a.x > b.x ? <f32>1.0 : <f32>0.0;
+        dst.y = a.y > b.y ? <f32>1.0 : <f32>0.0;
+        dst.z = a.z > b.z ? <f32>1.0 : <f32>0.0;
+        dst.w = a.w > b.w ? <f32>1.0 : <f32>0.0;
+    }
 }
 
 function b2BlendWTo(dst: b2FloatW, a: b2FloatW, b: b2FloatW, mask: b2FloatW): void {
-    dst.x = mask.x != 0.0 ? b.x : a.x;
-    dst.y = mask.y != 0.0 ? b.y : a.y;
-    dst.z = mask.z != 0.0 ? b.z : a.z;
-    dst.w = mask.w != 0.0 ? b.w : a.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst),
+                    v128.bitselect(load<v128>(wptr(b)),
+                                   load<v128>(wptr(a)),
+                                   load<v128>(wptr(mask))));
+    } else {
+        dst.x = mask.x != 0.0 ? b.x : a.x;
+        dst.y = mask.y != 0.0 ? b.y : a.y;
+        dst.z = mask.z != 0.0 ? b.z : a.z;
+        dst.w = mask.w != 0.0 ? b.w : a.w;
+    }
 }
 
 function b2DotWTo(dst: b2FloatW, a: b2Vec2W, b: b2Vec2W): void {
-    dst.x = a.X.x * b.X.x + a.Y.x * b.Y.x;
-    dst.y = a.X.y * b.X.y + a.Y.y * b.Y.y;
-    dst.z = a.X.z * b.X.z + a.Y.z * b.Y.z;
-    dst.w = a.X.w * b.X.w + a.Y.w * b.Y.w;
+    if (ASC_FEATURE_SIMD) {
+        store<v128>(wptr(dst),
+                    f32x4.add(f32x4.mul(load<v128>(wptr(a.X)), load<v128>(wptr(b.X))),
+                              f32x4.mul(load<v128>(wptr(a.Y)), load<v128>(wptr(b.Y)))));
+    } else {
+        dst.x = a.X.x * b.X.x + a.Y.x * b.Y.x;
+        dst.y = a.X.y * b.X.y + a.Y.y * b.Y.y;
+        dst.z = a.X.z * b.X.z + a.Y.z * b.Y.z;
+        dst.w = a.X.w * b.X.w + a.Y.w * b.Y.w;
+    }
 }
 
 // dst must not alias v.
 function b2RotateVectorWTo(dst: b2Vec2W, q: b2RotW, v: b2Vec2W): void {
-    b2SubWTo(dst.X, b2MulWTmp(s_rotTmp1, q.C, v.X), b2MulWTmp(s_rotTmp2, q.S, v.Y));
-    b2AddWTo(dst.Y, b2MulWTmp(s_rotTmp1, q.S, v.X), b2MulWTmp(s_rotTmp2, q.C, v.Y));
+    if (ASC_FEATURE_SIMD) {
+        let c = load<v128>(wptr(q.C));
+        let s = load<v128>(wptr(q.S));
+        let vx = load<v128>(wptr(v.X));
+        let vy = load<v128>(wptr(v.Y));
+        store<v128>(wptr(dst.X), f32x4.sub(f32x4.mul(c, vx), f32x4.mul(s, vy)));
+        store<v128>(wptr(dst.Y), f32x4.add(f32x4.mul(s, vx), f32x4.mul(c, vy)));
+    } else {
+        b2SubWTo(dst.X, b2MulWTmp(s_rotTmp1, q.C, v.X), b2MulWTmp(s_rotTmp2, q.S, v.Y));
+        b2AddWTo(dst.Y, b2MulWTmp(s_rotTmp1, q.S, v.X), b2MulWTmp(s_rotTmp2, q.C, v.Y));
+    }
 }
 
 function b2MulWTmp(dst: b2FloatW, a: b2FloatW, b: b2FloatW): b2FloatW {
