@@ -1,0 +1,12 @@
+build/
+verify/vectors/
+verify/*.wasm
+verify/cppref/*.tmp
+verify/cppref/ref_bench
+verify/cppref/ref_dynamics
+verify/cppref/ref_geom
+verify/cppref/ref_gjk
+verify/cppref/ref_manifold
+verify/cppref/ref_math
+verify/cppref/ref_state
+verify/cppref/ref_tree
