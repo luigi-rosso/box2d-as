@@ -354,20 +354,29 @@ export function b2ComputeCapsuleAABB(shape: b2Capsule, xf: b2Transform): b2AABB 
 
 export function b2ComputePolygonAABB(shape: b2Polygon, xf: b2Transform): b2AABB {
     assert(shape.count > 0);
-    let lower = b2TransformPoint(xf, shape.vertices[0]);
-    let upper = lower.clone();
+    let qc: f32 = xf.q.c;
+    let qs: f32 = xf.q.s;
+    let px: f32 = xf.p.x;
+    let py: f32 = xf.p.y;
+    let vertices = shape.vertices;
+    let v0 = unchecked(vertices[0]);
+    let lowerX: f32 = (qc * v0.x - qs * v0.y) + px;
+    let lowerY: f32 = (qs * v0.x + qc * v0.y) + py;
+    let upperX: f32 = lowerX;
+    let upperY: f32 = lowerY;
 
     for (let i = 1; i < shape.count; ++i) {
-        let v = b2TransformPoint(xf, shape.vertices[i]);
-        lower = b2Min(lower, v);
-        upper = b2Max(upper, v);
+        let src = unchecked(vertices[i]);
+        let vx: f32 = (qc * src.x - qs * src.y) + px;
+        let vy: f32 = (qs * src.x + qc * src.y) + py;
+        lowerX = lowerX < vx ? lowerX : vx;
+        lowerY = lowerY < vy ? lowerY : vy;
+        upperX = upperX > vx ? upperX : vx;
+        upperY = upperY > vy ? upperY : vy;
     }
 
-    let r = new b2Vec2(shape.radius, shape.radius);
-    lower = b2Sub(lower, r);
-    upper = b2Add(upper, r);
-
-    return new b2AABB(lower, upper);
+    let r: f32 = shape.radius;
+    return new b2AABB(new b2Vec2(lowerX - r, lowerY - r), new b2Vec2(upperX + r, upperY + r));
 }
 
 export function b2ComputeSegmentAABB(shape: b2Segment, xf: b2Transform): b2AABB {

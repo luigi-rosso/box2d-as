@@ -800,35 +800,18 @@ function b2RotateVectorW(q: b2RotW, v: b2Vec2W): b2Vec2W {
     }
 }
 
-// C accesses lanes through float pointer casts.
+// C accesses lanes through float pointer casts; the four f32 fields are
+// contiguous, so lane indexing is a scaled load/store.
+// @ts-ignore: decorator
+@inline
 function b2GetLaneW(a: b2FloatW, lane: i32): f32 {
-    switch (lane) {
-        case 0:
-            return a.x;
-        case 1:
-            return a.y;
-        case 2:
-            return a.z;
-        default:
-            return a.w;
-    }
+    return load<f32>(wptr(a) + (<usize>lane << 2));
 }
 
+// @ts-ignore: decorator
+@inline
 function b2SetLaneW(a: b2FloatW, lane: i32, value: f32): void {
-    switch (lane) {
-        case 0:
-            a.x = value;
-            break;
-        case 1:
-            a.y = value;
-            break;
-        case 2:
-            a.z = value;
-            break;
-        default:
-            a.w = value;
-            break;
-    }
+    store<f32>(wptr(a) + (<usize>lane << 2), value);
 }
 
 // Destructive wide ops for the hot solver tasks: lane-wise writes into
@@ -1114,7 +1097,10 @@ function b2GatherBodies(states: Array<b2BodyState | null>, indices: StaticArray<
     return simdBody;
 }
 
-// This writes only the velocities back to the solver bodies
+// This writes only the velocities back to the solver bodies. Inlined so the
+// simd tasks' v128 scratch stores forward straight into the lane reads.
+// @ts-ignore: decorator
+@inline
 function b2ScatterBodies(states: Array<b2BodyState | null>, indices: StaticArray<i32>, simdBody: b2BodyStateW): void {
     // I don't use any dummy body in the body array because this will lead to multithreaded sharing and the
     // associated cache flushing.
