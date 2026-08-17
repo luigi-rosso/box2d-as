@@ -1014,6 +1014,14 @@ function b2MulWTmp(dst: b2FloatW, a: b2FloatW, b: b2FloatW): b2FloatW {
     return dst;
 }
 
+// The simd task variants below keep every wide intermediate in a v128 local
+// instead of heap b2FloatW scratch. v128 cannot appear in any signature (the
+// type is rejected without --enable-simd, and declarations always compile),
+// so the bodies use the f32x4 builtins directly inside ASC_FEATURE_SIMD
+// guards. Per-lane instruction and operand order match the WTo ops exactly;
+// min/max/clamp keep compare+bitselect (f32x4.min/max diverge on NaN and
+// signed zero) and tangentY stays 0-x (f32x4.neg flips the zero sign).
+
 // Soft contact constraints with sub-stepping support
 // Uses fixed anchors for Jacobians for better behavior on rolling shapes (circles & capsules)
 // http://mmacklin.com/smallsteps.pdf
@@ -1226,6 +1234,15 @@ function b2GatherBodiesTo(dst: b2BodyStateW, states: Array<b2BodyState | null>, 
     dqS.y = s2.deltaRotation.s;
     dqS.z = s3.deltaRotation.s;
     dqS.w = s4.deltaRotation.s;
+}
+
+// Lane state selection shared by the simd gathers; mirrors the head of
+// b2GatherBodiesTo.
+// @ts-ignore: decorator
+@inline
+function stateAt(states: Array<b2BodyState | null>, indices: StaticArray<i32>, lane: i32): b2BodyState {
+    let idx = unchecked(indices[lane]);
+    return idx == B2_NULL_INDEX ? s_identityState : unchecked(states[idx])!;
 }
 
 export function b2PrepareContactsTask(startIndex: i32, endIndex: i32, context: b2StepContext): void {
@@ -1450,6 +1467,134 @@ export function b2PrepareContactsTask(startIndex: i32, endIndex: i32, context: b
 }
 
 export function b2WarmStartContactsTask(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32): void {
+    if (ASC_FEATURE_SIMD) {
+        b2WarmStartContactsSimd(startIndex, endIndex, context, colorIndex);
+    } else {
+        b2WarmStartContactsScalar(startIndex, endIndex, context, colorIndex);
+    }
+}
+
+function b2WarmStartContactsSimd(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32): void {
+    if (ASC_FEATURE_SIMD) {
+        let states = context.states;
+        let constraints = context.graph!.colors[colorIndex].simdConstraints!;
+
+        for (let i = startIndex; i < endIndex; ++i) {
+            let c = unchecked(constraints[i]);
+
+            let sA1 = stateAt(states, c.indexA, 0);
+            let sA2 = stateAt(states, c.indexA, 1);
+            let sA3 = stateAt(states, c.indexA, 2);
+            let sA4 = stateAt(states, c.indexA, 3);
+            let vAX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.linearVelocity.x), 1, sA2.linearVelocity.x),
+                    2, sA3.linearVelocity.x),
+                3, sA4.linearVelocity.x);
+            let vAY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.linearVelocity.y), 1, sA2.linearVelocity.y),
+                    2, sA3.linearVelocity.y),
+                3, sA4.linearVelocity.y);
+            let wA = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.angularVelocity), 1, sA2.angularVelocity),
+                    2, sA3.angularVelocity),
+                3, sA4.angularVelocity);
+
+            let sB1 = stateAt(states, c.indexB, 0);
+            let sB2 = stateAt(states, c.indexB, 1);
+            let sB3 = stateAt(states, c.indexB, 2);
+            let sB4 = stateAt(states, c.indexB, 3);
+            let vBX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.linearVelocity.x), 1, sB2.linearVelocity.x),
+                    2, sB3.linearVelocity.x),
+                3, sB4.linearVelocity.x);
+            let vBY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.linearVelocity.y), 1, sB2.linearVelocity.y),
+                    2, sB3.linearVelocity.y),
+                3, sB4.linearVelocity.y);
+            let wB = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.angularVelocity), 1, sB2.angularVelocity),
+                    2, sB3.angularVelocity),
+                3, sB4.angularVelocity);
+
+            let nX = load<v128>(wptr(c.normal.X));
+            let nY = load<v128>(wptr(c.normal.Y));
+            let invMassA = load<v128>(wptr(c.invMassA));
+            let invMassB = load<v128>(wptr(c.invMassB));
+            let invIA = load<v128>(wptr(c.invIA));
+            let invIB = load<v128>(wptr(c.invIB));
+
+            let tangentX = nY;
+            let tangentY = f32x4.sub(f32x4.splat(0), nX);
+
+            {
+                // fixed anchors
+                let rAX = load<v128>(wptr(c.anchorA1.X));
+                let rAY = load<v128>(wptr(c.anchorA1.Y));
+                let rBX = load<v128>(wptr(c.anchorB1.X));
+                let rBY = load<v128>(wptr(c.anchorB1.Y));
+
+                let normalImpulse = load<v128>(wptr(c.normalImpulse1));
+                let tangentImpulse = load<v128>(wptr(c.tangentImpulse1));
+                let Px = f32x4.add(f32x4.mul(normalImpulse, nX), f32x4.mul(tangentImpulse, tangentX));
+                let Py = f32x4.add(f32x4.mul(normalImpulse, nY), f32x4.mul(tangentImpulse, tangentY));
+
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+
+                store<v128>(wptr(c.totalNormalImpulse1),
+                            f32x4.add(load<v128>(wptr(c.totalNormalImpulse1)), normalImpulse));
+            }
+
+            {
+                // fixed anchors
+                let rAX = load<v128>(wptr(c.anchorA2.X));
+                let rAY = load<v128>(wptr(c.anchorA2.Y));
+                let rBX = load<v128>(wptr(c.anchorB2.X));
+                let rBY = load<v128>(wptr(c.anchorB2.Y));
+
+                let normalImpulse = load<v128>(wptr(c.normalImpulse2));
+                let tangentImpulse = load<v128>(wptr(c.tangentImpulse2));
+                let Px = f32x4.add(f32x4.mul(normalImpulse, nX), f32x4.mul(tangentImpulse, tangentX));
+                let Py = f32x4.add(f32x4.mul(normalImpulse, nY), f32x4.mul(tangentImpulse, tangentY));
+
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+
+                store<v128>(wptr(c.totalNormalImpulse2),
+                            f32x4.add(load<v128>(wptr(c.totalNormalImpulse2)), normalImpulse));
+            }
+
+            let rollingImpulse = load<v128>(wptr(c.rollingImpulse));
+            wA = f32x4.sub(wA, f32x4.mul(invIA, rollingImpulse));
+            wB = f32x4.add(wB, f32x4.mul(invIB, rollingImpulse));
+
+            store<v128>(wptr(s_bA.v.X), vAX);
+            store<v128>(wptr(s_bA.v.Y), vAY);
+            store<v128>(wptr(s_bA.w), wA);
+            b2ScatterBodies(states, c.indexA, s_bA);
+            store<v128>(wptr(s_bB.v.X), vBX);
+            store<v128>(wptr(s_bB.v.Y), vBY);
+            store<v128>(wptr(s_bB.w), wB);
+            b2ScatterBodies(states, c.indexB, s_bB);
+        }
+    }
+}
+
+function b2WarmStartContactsScalar(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32): void {
     let states = context.states;
     let constraints = context.graph!.colors[colorIndex].simdConstraints!;
 
@@ -1533,6 +1678,370 @@ export function b2WarmStartContactsTask(startIndex: i32, endIndex: i32, context:
 }
 
 export function b2SolveContactsTask(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32, useBias: bool): void {
+    if (ASC_FEATURE_SIMD) {
+        b2SolveContactsSimd(startIndex, endIndex, context, colorIndex, useBias);
+    } else {
+        b2SolveContactsScalar(startIndex, endIndex, context, colorIndex, useBias);
+    }
+}
+
+function b2SolveContactsSimd(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32, useBias: bool): void {
+    if (ASC_FEATURE_SIMD) {
+        let states = context.states;
+        let constraints = context.graph!.colors[colorIndex].simdConstraints!;
+        let inv_h = f32x4.splat(context.inv_h);
+        let contactSpeed = f32x4.splat(-context.world!.contactSpeed);
+        let oneW = f32x4.splat(1.0);
+        let zeroW = f32x4.splat(0);
+
+        for (let i = startIndex; i < endIndex; ++i) {
+            let c = unchecked(constraints[i]);
+
+            let sA1 = stateAt(states, c.indexA, 0);
+            let sA2 = stateAt(states, c.indexA, 1);
+            let sA3 = stateAt(states, c.indexA, 2);
+            let sA4 = stateAt(states, c.indexA, 3);
+            let vAX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.linearVelocity.x), 1, sA2.linearVelocity.x),
+                    2, sA3.linearVelocity.x),
+                3, sA4.linearVelocity.x);
+            let vAY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.linearVelocity.y), 1, sA2.linearVelocity.y),
+                    2, sA3.linearVelocity.y),
+                3, sA4.linearVelocity.y);
+            let wA = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.angularVelocity), 1, sA2.angularVelocity),
+                    2, sA3.angularVelocity),
+                3, sA4.angularVelocity);
+            let dpAX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.deltaPosition.x), 1, sA2.deltaPosition.x),
+                    2, sA3.deltaPosition.x),
+                3, sA4.deltaPosition.x);
+            let dpAY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.deltaPosition.y), 1, sA2.deltaPosition.y),
+                    2, sA3.deltaPosition.y),
+                3, sA4.deltaPosition.y);
+            let dqAC = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.deltaRotation.c), 1, sA2.deltaRotation.c),
+                    2, sA3.deltaRotation.c),
+                3, sA4.deltaRotation.c);
+            let dqAS = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.deltaRotation.s), 1, sA2.deltaRotation.s),
+                    2, sA3.deltaRotation.s),
+                3, sA4.deltaRotation.s);
+
+            let sB1 = stateAt(states, c.indexB, 0);
+            let sB2 = stateAt(states, c.indexB, 1);
+            let sB3 = stateAt(states, c.indexB, 2);
+            let sB4 = stateAt(states, c.indexB, 3);
+            let vBX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.linearVelocity.x), 1, sB2.linearVelocity.x),
+                    2, sB3.linearVelocity.x),
+                3, sB4.linearVelocity.x);
+            let vBY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.linearVelocity.y), 1, sB2.linearVelocity.y),
+                    2, sB3.linearVelocity.y),
+                3, sB4.linearVelocity.y);
+            let wB = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.angularVelocity), 1, sB2.angularVelocity),
+                    2, sB3.angularVelocity),
+                3, sB4.angularVelocity);
+            let dpBX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.deltaPosition.x), 1, sB2.deltaPosition.x),
+                    2, sB3.deltaPosition.x),
+                3, sB4.deltaPosition.x);
+            let dpBY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.deltaPosition.y), 1, sB2.deltaPosition.y),
+                    2, sB3.deltaPosition.y),
+                3, sB4.deltaPosition.y);
+            let dqBC = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.deltaRotation.c), 1, sB2.deltaRotation.c),
+                    2, sB3.deltaRotation.c),
+                3, sB4.deltaRotation.c);
+            let dqBS = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.deltaRotation.s), 1, sB2.deltaRotation.s),
+                    2, sB3.deltaRotation.s),
+                3, sB4.deltaRotation.s);
+
+            let nX = load<v128>(wptr(c.normal.X));
+            let nY = load<v128>(wptr(c.normal.Y));
+            let invMassA = load<v128>(wptr(c.invMassA));
+            let invMassB = load<v128>(wptr(c.invMassB));
+            let invIA = load<v128>(wptr(c.invIA));
+            let invIB = load<v128>(wptr(c.invIB));
+
+            let biasRate = zeroW;
+            let massScale = oneW;
+            let impulseScale = zeroW;
+            if (useBias) {
+                massScale = load<v128>(wptr(c.massScale));
+                biasRate = f32x4.mul(massScale, load<v128>(wptr(c.biasRate)));
+                impulseScale = load<v128>(wptr(c.impulseScale));
+            }
+
+            let totalNormalImpulse = zeroW;
+
+            let dpX = f32x4.sub(dpBX, dpAX);
+            let dpY = f32x4.sub(dpBY, dpAY);
+
+            // point1 non-penetration constraint
+            {
+                // Fixed anchors for impulses
+                let rAX = load<v128>(wptr(c.anchorA1.X));
+                let rAY = load<v128>(wptr(c.anchorA1.Y));
+                let rBX = load<v128>(wptr(c.anchorB1.X));
+                let rBY = load<v128>(wptr(c.anchorB1.Y));
+
+                // Moving anchors for current separation
+                let rsAX = f32x4.sub(f32x4.mul(dqAC, rAX), f32x4.mul(dqAS, rAY));
+                let rsAY = f32x4.add(f32x4.mul(dqAS, rAX), f32x4.mul(dqAC, rAY));
+                let rsBX = f32x4.sub(f32x4.mul(dqBC, rBX), f32x4.mul(dqBS, rBY));
+                let rsBY = f32x4.add(f32x4.mul(dqBS, rBX), f32x4.mul(dqBC, rBY));
+
+                // compute current separation
+                // this is subject to round-off error if the anchor is far from the body center of mass
+                let dsX = f32x4.add(dpX, f32x4.sub(rsBX, rsAX));
+                let dsY = f32x4.add(dpY, f32x4.sub(rsBY, rsAY));
+                let s = f32x4.add(f32x4.add(f32x4.mul(nX, dsX), f32x4.mul(nY, dsY)),
+                                  load<v128>(wptr(c.baseSeparation1)));
+
+                // Apply speculative bias if separation is greater than zero, otherwise apply soft constraint bias
+                // The contactSpeed is meant to limit stiffness, not increase it.
+                let mask = f32x4.gt(s, zeroW);
+                let specBias = f32x4.mul(s, inv_h);
+                let softRate = f32x4.mul(biasRate, s);
+                let softBias = v128.bitselect(softRate, contactSpeed, f32x4.ge(softRate, contactSpeed));
+                let bias = v128.bitselect(specBias, softBias, mask);
+
+                let pointMassScale = v128.bitselect(oneW, massScale, mask);
+                let pointImpulseScale = v128.bitselect(zeroW, impulseScale, mask);
+
+                // Relative velocity at contact
+                let dvx = f32x4.sub(f32x4.sub(vBX, f32x4.mul(wB, rBY)), f32x4.sub(vAX, f32x4.mul(wA, rAY)));
+                let dvy = f32x4.sub(f32x4.add(vBY, f32x4.mul(wB, rBX)), f32x4.add(vAY, f32x4.mul(wA, rAX)));
+                let vn = f32x4.add(f32x4.mul(dvx, nX), f32x4.mul(dvy, nY));
+
+                // Compute normal impulse
+                let prevImpulse = load<v128>(wptr(c.normalImpulse1));
+                let negImpulse = f32x4.add(
+                    f32x4.mul(load<v128>(wptr(c.normalMass1)), f32x4.add(f32x4.mul(pointMassScale, vn), bias)),
+                    f32x4.mul(pointImpulseScale, prevImpulse));
+
+                // Clamp the accumulated impulse
+                let unclamped = f32x4.sub(prevImpulse, negImpulse);
+                let newImpulse = v128.bitselect(unclamped, zeroW, f32x4.ge(unclamped, zeroW));
+                let impulse = f32x4.sub(newImpulse, prevImpulse);
+                store<v128>(wptr(c.normalImpulse1), newImpulse);
+                store<v128>(wptr(c.totalNormalImpulse1),
+                            f32x4.add(load<v128>(wptr(c.totalNormalImpulse1)), impulse));
+
+                totalNormalImpulse = f32x4.add(totalNormalImpulse, newImpulse);
+
+                // Apply contact impulse
+                let Px = f32x4.mul(impulse, nX);
+                let Py = f32x4.mul(impulse, nY);
+
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+            }
+
+            // second point non-penetration constraint
+            {
+                // fixed anchors for Jacobians, moving anchors for current separation
+                let rAX = load<v128>(wptr(c.anchorA2.X));
+                let rAY = load<v128>(wptr(c.anchorA2.Y));
+                let rBX = load<v128>(wptr(c.anchorB2.X));
+                let rBY = load<v128>(wptr(c.anchorB2.Y));
+
+                let rsAX = f32x4.sub(f32x4.mul(dqAC, rAX), f32x4.mul(dqAS, rAY));
+                let rsAY = f32x4.add(f32x4.mul(dqAS, rAX), f32x4.mul(dqAC, rAY));
+                let rsBX = f32x4.sub(f32x4.mul(dqBC, rBX), f32x4.mul(dqBS, rBY));
+                let rsBY = f32x4.add(f32x4.mul(dqBS, rBX), f32x4.mul(dqBC, rBY));
+
+                // compute current separation
+                let dsX = f32x4.add(dpX, f32x4.sub(rsBX, rsAX));
+                let dsY = f32x4.add(dpY, f32x4.sub(rsBY, rsAY));
+                let s = f32x4.add(f32x4.add(f32x4.mul(nX, dsX), f32x4.mul(nY, dsY)),
+                                  load<v128>(wptr(c.baseSeparation2)));
+
+                let mask = f32x4.gt(s, zeroW);
+                let specBias = f32x4.mul(s, inv_h);
+                let softRate = f32x4.mul(biasRate, s);
+                let softBias = v128.bitselect(softRate, contactSpeed, f32x4.ge(softRate, contactSpeed));
+                let bias = v128.bitselect(specBias, softBias, mask);
+
+                let pointMassScale = v128.bitselect(oneW, massScale, mask);
+                let pointImpulseScale = v128.bitselect(zeroW, impulseScale, mask);
+
+                // Relative velocity at contact
+                let dvx = f32x4.sub(f32x4.sub(vBX, f32x4.mul(wB, rBY)), f32x4.sub(vAX, f32x4.mul(wA, rAY)));
+                let dvy = f32x4.sub(f32x4.add(vBY, f32x4.mul(wB, rBX)), f32x4.add(vAY, f32x4.mul(wA, rAX)));
+                let vn = f32x4.add(f32x4.mul(dvx, nX), f32x4.mul(dvy, nY));
+
+                // Compute normal impulse
+                let prevImpulse = load<v128>(wptr(c.normalImpulse2));
+                let negImpulse = f32x4.add(
+                    f32x4.mul(load<v128>(wptr(c.normalMass2)), f32x4.add(f32x4.mul(pointMassScale, vn), bias)),
+                    f32x4.mul(pointImpulseScale, prevImpulse));
+
+                // Clamp the accumulated impulse
+                let unclamped = f32x4.sub(prevImpulse, negImpulse);
+                let newImpulse = v128.bitselect(unclamped, zeroW, f32x4.ge(unclamped, zeroW));
+                let impulse = f32x4.sub(newImpulse, prevImpulse);
+                store<v128>(wptr(c.normalImpulse2), newImpulse);
+                store<v128>(wptr(c.totalNormalImpulse2),
+                            f32x4.add(load<v128>(wptr(c.totalNormalImpulse2)), impulse));
+
+                totalNormalImpulse = f32x4.add(totalNormalImpulse, newImpulse);
+
+                // Apply contact impulse
+                let Px = f32x4.mul(impulse, nX);
+                let Py = f32x4.mul(impulse, nY);
+
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+            }
+
+            let tangentX = nY;
+            let tangentY = f32x4.sub(zeroW, nX);
+
+            // point 1 friction constraint
+            {
+                // fixed anchors for Jacobians
+                let rAX = load<v128>(wptr(c.anchorA1.X));
+                let rAY = load<v128>(wptr(c.anchorA1.Y));
+                let rBX = load<v128>(wptr(c.anchorB1.X));
+                let rBY = load<v128>(wptr(c.anchorB1.Y));
+
+                // Relative velocity at contact
+                let dvx = f32x4.sub(f32x4.sub(vBX, f32x4.mul(wB, rBY)), f32x4.sub(vAX, f32x4.mul(wA, rAY)));
+                let dvy = f32x4.sub(f32x4.add(vBY, f32x4.mul(wB, rBX)), f32x4.add(vAY, f32x4.mul(wA, rAX)));
+                let vt = f32x4.add(f32x4.mul(dvx, tangentX), f32x4.mul(dvy, tangentY));
+
+                // Tangent speed (conveyor belt)
+                vt = f32x4.sub(vt, load<v128>(wptr(c.tangentSpeed)));
+
+                // Compute tangent force
+                let negImpulse = f32x4.mul(load<v128>(wptr(c.tangentMass1)), vt);
+
+                // Clamp the accumulated force
+                let prevImpulse = load<v128>(wptr(c.tangentImpulse1));
+                let maxFriction = f32x4.mul(load<v128>(wptr(c.friction)), load<v128>(wptr(c.normalImpulse1)));
+                let unclamped = f32x4.sub(prevImpulse, negImpulse);
+                let newImpulse = v128.bitselect(unclamped, maxFriction, f32x4.le(unclamped, maxFriction));
+                let negMaxFriction = f32x4.sub(zeroW, maxFriction);
+                newImpulse = v128.bitselect(negMaxFriction, newImpulse, f32x4.ge(negMaxFriction, newImpulse));
+                let impulse = f32x4.sub(newImpulse, prevImpulse);
+                store<v128>(wptr(c.tangentImpulse1), newImpulse);
+
+                // Apply contact impulse
+                let Px = f32x4.mul(impulse, tangentX);
+                let Py = f32x4.mul(impulse, tangentY);
+
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+            }
+
+            // second point friction constraint
+            {
+                // fixed anchors for Jacobians
+                let rAX = load<v128>(wptr(c.anchorA2.X));
+                let rAY = load<v128>(wptr(c.anchorA2.Y));
+                let rBX = load<v128>(wptr(c.anchorB2.X));
+                let rBY = load<v128>(wptr(c.anchorB2.Y));
+
+                // Relative velocity at contact
+                let dvx = f32x4.sub(f32x4.sub(vBX, f32x4.mul(wB, rBY)), f32x4.sub(vAX, f32x4.mul(wA, rAY)));
+                let dvy = f32x4.sub(f32x4.add(vBY, f32x4.mul(wB, rBX)), f32x4.add(vAY, f32x4.mul(wA, rAX)));
+                let vt = f32x4.add(f32x4.mul(dvx, tangentX), f32x4.mul(dvy, tangentY));
+
+                // Tangent speed (conveyor belt)
+                vt = f32x4.sub(vt, load<v128>(wptr(c.tangentSpeed)));
+
+                // Compute tangent force
+                let negImpulse = f32x4.mul(load<v128>(wptr(c.tangentMass2)), vt);
+
+                // Clamp the accumulated force
+                let prevImpulse = load<v128>(wptr(c.tangentImpulse2));
+                let maxFriction = f32x4.mul(load<v128>(wptr(c.friction)), load<v128>(wptr(c.normalImpulse2)));
+                let unclamped = f32x4.sub(prevImpulse, negImpulse);
+                let newImpulse = v128.bitselect(unclamped, maxFriction, f32x4.le(unclamped, maxFriction));
+                let negMaxFriction = f32x4.sub(zeroW, maxFriction);
+                newImpulse = v128.bitselect(negMaxFriction, newImpulse, f32x4.ge(negMaxFriction, newImpulse));
+                let impulse = f32x4.sub(newImpulse, prevImpulse);
+                store<v128>(wptr(c.tangentImpulse2), newImpulse);
+
+                // Apply contact impulse
+                let Px = f32x4.mul(impulse, tangentX);
+                let Py = f32x4.mul(impulse, tangentY);
+
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+            }
+
+            // Rolling resistance
+            {
+                let deltaLambda = f32x4.mul(load<v128>(wptr(c.rollingMass)), f32x4.sub(wA, wB));
+                let lambda = load<v128>(wptr(c.rollingImpulse));
+                let maxLambda = f32x4.mul(load<v128>(wptr(c.rollingResistance)), totalNormalImpulse);
+                let target = f32x4.add(lambda, deltaLambda);
+                let loLambda = f32x4.neg(maxLambda);
+                let newLambda = v128.bitselect(maxLambda, target, f32x4.gt(target, maxLambda));
+                newLambda = v128.bitselect(loLambda, newLambda, f32x4.lt(target, loLambda));
+                store<v128>(wptr(c.rollingImpulse), newLambda);
+                deltaLambda = f32x4.sub(newLambda, lambda);
+
+                wA = f32x4.sub(wA, f32x4.mul(invIA, deltaLambda));
+                wB = f32x4.add(wB, f32x4.mul(invIB, deltaLambda));
+            }
+
+            store<v128>(wptr(s_bA.v.X), vAX);
+            store<v128>(wptr(s_bA.v.Y), vAY);
+            store<v128>(wptr(s_bA.w), wA);
+            b2ScatterBodies(states, c.indexA, s_bA);
+            store<v128>(wptr(s_bB.v.X), vBX);
+            store<v128>(wptr(s_bB.v.Y), vBY);
+            store<v128>(wptr(s_bB.w), wB);
+            b2ScatterBodies(states, c.indexB, s_bB);
+        }
+    }
+}
+
+function b2SolveContactsScalar(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32, useBias: bool): void {
     let states = context.states;
     let constraints = context.graph!.colors[colorIndex].simdConstraints!;
     let inv_h = b2SplatW(context.inv_h);
@@ -1909,6 +2418,185 @@ export function b2SolveContactsTask(startIndex: i32, endIndex: i32, context: b2S
 }
 
 export function b2ApplyRestitutionTask(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32): void {
+    if (ASC_FEATURE_SIMD) {
+        b2ApplyRestitutionSimd(startIndex, endIndex, context, colorIndex);
+    } else {
+        b2ApplyRestitutionScalar(startIndex, endIndex, context, colorIndex);
+    }
+}
+
+function b2ApplyRestitutionSimd(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32): void {
+    if (ASC_FEATURE_SIMD) {
+        let states = context.states;
+        let constraints = context.graph!.colors[colorIndex].simdConstraints!;
+        let threshold = f32x4.splat(context.world!.restitutionThreshold);
+        let zero = f32x4.splat(0);
+
+        for (let i = startIndex; i < endIndex; ++i) {
+            let c = unchecked(constraints[i]);
+
+            let restitution = load<v128>(wptr(c.restitution));
+            if (i32x4.all_true(f32x4.eq(restitution, zero))) {
+                // No lanes have restitution. Common case.
+                continue;
+            }
+
+            // Create a mask based on restitution so that lanes with no restitution are not affected
+            // by the calculations below.
+            let restitutionMask = f32x4.eq(restitution, zero);
+
+            let sA1 = stateAt(states, c.indexA, 0);
+            let sA2 = stateAt(states, c.indexA, 1);
+            let sA3 = stateAt(states, c.indexA, 2);
+            let sA4 = stateAt(states, c.indexA, 3);
+            let vAX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.linearVelocity.x), 1, sA2.linearVelocity.x),
+                    2, sA3.linearVelocity.x),
+                3, sA4.linearVelocity.x);
+            let vAY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.linearVelocity.y), 1, sA2.linearVelocity.y),
+                    2, sA3.linearVelocity.y),
+                3, sA4.linearVelocity.y);
+            let wA = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sA1.angularVelocity), 1, sA2.angularVelocity),
+                    2, sA3.angularVelocity),
+                3, sA4.angularVelocity);
+
+            let sB1 = stateAt(states, c.indexB, 0);
+            let sB2 = stateAt(states, c.indexB, 1);
+            let sB3 = stateAt(states, c.indexB, 2);
+            let sB4 = stateAt(states, c.indexB, 3);
+            let vBX = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.linearVelocity.x), 1, sB2.linearVelocity.x),
+                    2, sB3.linearVelocity.x),
+                3, sB4.linearVelocity.x);
+            let vBY = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.linearVelocity.y), 1, sB2.linearVelocity.y),
+                    2, sB3.linearVelocity.y),
+                3, sB4.linearVelocity.y);
+            let wB = f32x4.replace_lane(
+                f32x4.replace_lane(
+                    f32x4.replace_lane(f32x4.splat(sB1.angularVelocity), 1, sB2.angularVelocity),
+                    2, sB3.angularVelocity),
+                3, sB4.angularVelocity);
+
+            let nX = load<v128>(wptr(c.normal.X));
+            let nY = load<v128>(wptr(c.normal.Y));
+            let invMassA = load<v128>(wptr(c.invMassA));
+            let invMassB = load<v128>(wptr(c.invMassB));
+            let invIA = load<v128>(wptr(c.invIA));
+            let invIB = load<v128>(wptr(c.invIB));
+
+            // first point non-penetration constraint
+            {
+                // Set effective mass to zero if restitution should not be applied
+                let relativeVelocity = load<v128>(wptr(c.relativeVelocity1));
+                let mask1 = f32x4.gt(f32x4.add(relativeVelocity, threshold), zero);
+                let mask2 = f32x4.eq(load<v128>(wptr(c.totalNormalImpulse1)), zero);
+                let mask = v128.or(v128.or(mask1, mask2), restitutionMask);
+                let mass = v128.bitselect(zero, load<v128>(wptr(c.normalMass1)), mask);
+
+                // fixed anchors for Jacobians
+                let rAX = load<v128>(wptr(c.anchorA1.X));
+                let rAY = load<v128>(wptr(c.anchorA1.Y));
+                let rBX = load<v128>(wptr(c.anchorB1.X));
+                let rBY = load<v128>(wptr(c.anchorB1.Y));
+
+                // Relative velocity at contact
+                let dvx = f32x4.sub(f32x4.sub(vBX, f32x4.mul(wB, rBY)), f32x4.sub(vAX, f32x4.mul(wA, rAY)));
+                let dvy = f32x4.sub(f32x4.add(vBY, f32x4.mul(wB, rBX)), f32x4.add(vAY, f32x4.mul(wA, rAX)));
+                let vn = f32x4.add(f32x4.mul(dvx, nX), f32x4.mul(dvy, nY));
+
+                // Compute normal impulse
+                let negImpulse = f32x4.mul(mass, f32x4.add(vn, f32x4.mul(restitution, relativeVelocity)));
+
+                // Clamp the accumulated impulse
+                let prevImpulse = load<v128>(wptr(c.normalImpulse1));
+                let unclamped = f32x4.sub(prevImpulse, negImpulse);
+                let newImpulse = v128.bitselect(unclamped, zero, f32x4.ge(unclamped, zero));
+                let deltaImpulse = f32x4.sub(newImpulse, prevImpulse);
+                store<v128>(wptr(c.normalImpulse1), newImpulse);
+
+                store<v128>(wptr(c.totalNormalImpulse1),
+                            f32x4.add(load<v128>(wptr(c.totalNormalImpulse1)), deltaImpulse));
+
+                // Apply contact impulse
+                let Px = f32x4.mul(deltaImpulse, nX);
+                let Py = f32x4.mul(deltaImpulse, nY);
+
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+            }
+
+            // second point non-penetration constraint
+            {
+                // Set effective mass to zero if restitution should not be applied
+                let relativeVelocity = load<v128>(wptr(c.relativeVelocity2));
+                let mask1 = f32x4.gt(f32x4.add(relativeVelocity, threshold), zero);
+                let mask2 = f32x4.eq(load<v128>(wptr(c.totalNormalImpulse2)), zero);
+                let mask = v128.or(v128.or(mask1, mask2), restitutionMask);
+                let mass = v128.bitselect(zero, load<v128>(wptr(c.normalMass2)), mask);
+
+                // fixed anchors for Jacobians
+                let rAX = load<v128>(wptr(c.anchorA2.X));
+                let rAY = load<v128>(wptr(c.anchorA2.Y));
+                let rBX = load<v128>(wptr(c.anchorB2.X));
+                let rBY = load<v128>(wptr(c.anchorB2.Y));
+
+                // Relative velocity at contact
+                let dvx = f32x4.sub(f32x4.sub(vBX, f32x4.mul(wB, rBY)), f32x4.sub(vAX, f32x4.mul(wA, rAY)));
+                let dvy = f32x4.sub(f32x4.add(vBY, f32x4.mul(wB, rBX)), f32x4.add(vAY, f32x4.mul(wA, rAX)));
+                let vn = f32x4.add(f32x4.mul(dvx, nX), f32x4.mul(dvy, nY));
+
+                // Compute normal impulse
+                let negImpulse = f32x4.mul(mass, f32x4.add(vn, f32x4.mul(restitution, relativeVelocity)));
+
+                // Clamp the accumulated impulse
+                let prevImpulse = load<v128>(wptr(c.normalImpulse2));
+                let unclamped = f32x4.sub(prevImpulse, negImpulse);
+                let newImpulse = v128.bitselect(unclamped, zero, f32x4.ge(unclamped, zero));
+                let deltaImpulse = f32x4.sub(newImpulse, prevImpulse);
+                store<v128>(wptr(c.normalImpulse2), newImpulse);
+
+                store<v128>(wptr(c.totalNormalImpulse2),
+                            f32x4.add(load<v128>(wptr(c.totalNormalImpulse2)), deltaImpulse));
+
+                // Apply contact impulse
+                let Px = f32x4.mul(deltaImpulse, nX);
+                let Py = f32x4.mul(deltaImpulse, nY);
+
+                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+            }
+
+            store<v128>(wptr(s_bA.v.X), vAX);
+            store<v128>(wptr(s_bA.v.Y), vAY);
+            store<v128>(wptr(s_bA.w), wA);
+            b2ScatterBodies(states, c.indexA, s_bA);
+            store<v128>(wptr(s_bB.v.X), vBX);
+            store<v128>(wptr(s_bB.v.Y), vBY);
+            store<v128>(wptr(s_bB.w), wB);
+            b2ScatterBodies(states, c.indexB, s_bB);
+        }
+    }
+}
+
+function b2ApplyRestitutionScalar(startIndex: i32, endIndex: i32, context: b2StepContext, colorIndex: i32): void {
     let states = context.states;
     let constraints = context.graph!.colors[colorIndex].simdConstraints!;
     let threshold = b2SplatW(context.world!.restitutionThreshold);
