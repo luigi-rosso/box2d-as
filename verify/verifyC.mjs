@@ -50,7 +50,8 @@ function ckHash(got, wantTok, msg) {
     if (got !== want) fail(`${msg} got ${got.toString(16).padStart(16, '0')} want ${wantTok}`);
 }
 
-const lines = readFileSync(new URL('./vectors/dynamics_vectors.txt', import.meta.url), 'utf8').split('\n');
+const vectorsName = process.env.VERIFYC_VECTORS || './vectors/dynamics_vectors.txt';
+const lines = readFileSync(new URL(vectorsName, import.meta.url), 'utf8').split('\n');
 
 let sceneRun = 0;
 let stepsLeft = 0;

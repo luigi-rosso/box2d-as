@@ -1530,12 +1530,21 @@ function b2WarmStartContactsSimd(startIndex: i32, endIndex: i32, context: b2Step
                 let Px = f32x4.add(f32x4.mul(normalImpulse, nX), f32x4.mul(tangentImpulse, tangentX));
                 let Py = f32x4.add(f32x4.mul(normalImpulse, nY), f32x4.mul(tangentImpulse, tangentY));
 
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                } else {
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                }
 
                 store<v128>(wptr(c.totalNormalImpulse1),
                             f32x4.add(load<v128>(wptr(c.totalNormalImpulse1)), normalImpulse));
@@ -1553,20 +1562,34 @@ function b2WarmStartContactsSimd(startIndex: i32, endIndex: i32, context: b2Step
                 let Px = f32x4.add(f32x4.mul(normalImpulse, nX), f32x4.mul(tangentImpulse, tangentX));
                 let Py = f32x4.add(f32x4.mul(normalImpulse, nY), f32x4.mul(tangentImpulse, tangentY));
 
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                } else {
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                }
 
                 store<v128>(wptr(c.totalNormalImpulse2),
                             f32x4.add(load<v128>(wptr(c.totalNormalImpulse2)), normalImpulse));
             }
 
             let rollingImpulse = load<v128>(wptr(c.rollingImpulse));
-            wA = f32x4.sub(wA, f32x4.mul(invIA, rollingImpulse));
-            wB = f32x4.add(wB, f32x4.mul(invIB, rollingImpulse));
+            if (ASC_FEATURE_RELAXED_SIMD) {
+                wA = f32x4.relaxed_nmadd(invIA, rollingImpulse, wA);
+                wB = f32x4.relaxed_madd(invIB, rollingImpulse, wB);
+            } else {
+                wA = f32x4.sub(wA, f32x4.mul(invIA, rollingImpulse));
+                wB = f32x4.add(wB, f32x4.mul(invIB, rollingImpulse));
+            }
 
             store<v128>(wptr(s_bA.v.X), vAX);
             store<v128>(wptr(s_bA.v.Y), vAY);
@@ -1841,13 +1864,23 @@ function b2SolveContactsSimd(startIndex: i32, endIndex: i32, context: b2StepCont
                 let Px = f32x4.mul(impulse, nX);
                 let Py = f32x4.mul(impulse, nY);
 
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
 
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                } else {
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                }
             }
 
             // second point non-penetration constraint
@@ -1903,13 +1936,23 @@ function b2SolveContactsSimd(startIndex: i32, endIndex: i32, context: b2StepCont
                 let Px = f32x4.mul(impulse, nX);
                 let Py = f32x4.mul(impulse, nY);
 
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
 
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                } else {
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                }
             }
 
             let tangentX = nY;
@@ -1948,13 +1991,23 @@ function b2SolveContactsSimd(startIndex: i32, endIndex: i32, context: b2StepCont
                 let Px = f32x4.mul(impulse, tangentX);
                 let Py = f32x4.mul(impulse, tangentY);
 
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
 
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                } else {
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                }
             }
 
             // second point friction constraint
@@ -1990,13 +2043,23 @@ function b2SolveContactsSimd(startIndex: i32, endIndex: i32, context: b2StepCont
                 let Px = f32x4.mul(impulse, tangentX);
                 let Py = f32x4.mul(impulse, tangentY);
 
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
 
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                } else {
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                }
             }
 
             // Rolling resistance
@@ -2011,8 +2074,13 @@ function b2SolveContactsSimd(startIndex: i32, endIndex: i32, context: b2StepCont
                 store<v128>(wptr(c.rollingImpulse), newLambda);
                 deltaLambda = f32x4.sub(newLambda, lambda);
 
-                wA = f32x4.sub(wA, f32x4.mul(invIA, deltaLambda));
-                wB = f32x4.add(wB, f32x4.mul(invIB, deltaLambda));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    wA = f32x4.relaxed_nmadd(invIA, deltaLambda, wA);
+                    wB = f32x4.relaxed_madd(invIB, deltaLambda, wB);
+                } else {
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, deltaLambda));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, deltaLambda));
+                }
             }
 
             store<v128>(wptr(s_bA.v.X), vAX);
@@ -2515,13 +2583,23 @@ function b2ApplyRestitutionSimd(startIndex: i32, endIndex: i32, context: b2StepC
                 let Px = f32x4.mul(deltaImpulse, nX);
                 let Py = f32x4.mul(deltaImpulse, nY);
 
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
 
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                } else {
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                }
             }
 
             // second point non-penetration constraint
@@ -2561,13 +2639,23 @@ function b2ApplyRestitutionSimd(startIndex: i32, endIndex: i32, context: b2StepC
                 let Px = f32x4.mul(deltaImpulse, nX);
                 let Py = f32x4.mul(deltaImpulse, nY);
 
-                vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
-                vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
-                wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+                if (ASC_FEATURE_RELAXED_SIMD) {
+                    vAX = f32x4.relaxed_nmadd(invMassA, Px, vAX);
+                    vAY = f32x4.relaxed_nmadd(invMassA, Py, vAY);
+                    wA = f32x4.relaxed_nmadd(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px)), wA);
 
-                vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
-                vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
-                wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                    vBX = f32x4.relaxed_madd(invMassB, Px, vBX);
+                    vBY = f32x4.relaxed_madd(invMassB, Py, vBY);
+                    wB = f32x4.relaxed_madd(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px)), wB);
+                } else {
+                    vAX = f32x4.sub(vAX, f32x4.mul(invMassA, Px));
+                    vAY = f32x4.sub(vAY, f32x4.mul(invMassA, Py));
+                    wA = f32x4.sub(wA, f32x4.mul(invIA, f32x4.sub(f32x4.mul(rAX, Py), f32x4.mul(rAY, Px))));
+
+                    vBX = f32x4.add(vBX, f32x4.mul(invMassB, Px));
+                    vBY = f32x4.add(vBY, f32x4.mul(invMassB, Py));
+                    wB = f32x4.add(wB, f32x4.mul(invIB, f32x4.sub(f32x4.mul(rBX, Py), f32x4.mul(rBY, Px))));
+                }
             }
 
             store<v128>(wptr(s_bA.v.X), vAX);

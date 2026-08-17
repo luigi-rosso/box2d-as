@@ -84,3 +84,20 @@ TOI caveat: C's `b2TimeOfImpact` leaves `b2TOIOutput.point/normal`
 uninitialized on the non-hit paths (and the s1-overlap failed path), so the
 reference emits stack garbage there; the comparison checks point/normal only
 for `b2_toiStateHit` and state+fraction always.
+
+## Relaxed-fma flavor (opt-in artifact)
+
+`--enable-relaxed-simd` (bake env `RIVE_RASC_RELAXED=1`) turns the 52 solver
+velocity-update sites — exactly C's `b2MulAddW`/`b2MulSubW` call sites — into
+`f32x4.relaxed_madd`/`relaxed_nmadd`. Fused fma is single-rounding
+deterministic, so the flavor keeps a bit-exact differential: run.sh generates
+`cppref/contact_solver_fma.c` from the pinned source (only those two scalar
+bodies become `fmaf`), rebuilds `ref_dynamics_fma`/`ref_bench_fma`, and
+replays phase C against `dynamics_vectors_fma.txt`. The fused reference
+checksum differs from the deterministic lane's by design; the relaxed bake's
+bits line must match it in every lane (verified identical across WAMR AOT
+sw/hw and V8). Phases A/B carry no relaxed sites and are not re-run. The
+interpreter refuses relaxed modules ("invalid opcode 0xfd 105/106") — the
+relaxed artifact is AOT/V8 only, and wamrc needs wamr patch 0012
+(fields_as `packages/runtime/scripting/wamr_patches/`). This leg requires
+fma hardware (every supported target has it).

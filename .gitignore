@@ -10,3 +10,6 @@ verify/cppref/ref_manifold
 verify/cppref/ref_math
 verify/cppref/ref_state
 verify/cppref/ref_tree
+verify/cppref/ref_bench_fma
+verify/cppref/ref_dynamics_fma
+verify/cppref/contact_solver_fma.c

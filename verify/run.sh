@@ -97,4 +97,29 @@ echo "== -O2 rasc simd build =="
 node verify.mjs
 node verifyC.mjs
 
-echo "phase A+B+C verification: all green, scalar and simd"
+# Relaxed-fma flavor: the reference twin fuses b2MulAddW/b2MulSubW with fmaf
+# at exactly the sites the relaxed artifact fuses, so phase C stays a
+# bit-exact comparison (fused fma is single-rounding deterministic; this leg
+# requires fma hardware, which every supported target has). Phases A/B carry
+# no relaxed sites, so only the dynamics leg reruns.
+python3 cppref/make_contact_solver_fma.py "$BOX2D_SRC/src/contact_solver.c" cppref/contact_solver_fma.c
+SRC_NO_CS=("$BOX2D_SRC"/src/*.c)
+SRC_NO_CS=(${SRC_NO_CS:#*contact_solver.c})
+clang "${CFLAGS[@]}" cppref/ref_dynamics.c "${SRC_NO_CS[@]}" cppref/contact_solver_fma.c -o cppref/ref_dynamics_fma
+clang "${CFLAGS[@]}" cppref/ref_bench.c "${SRC_NO_CS[@]}" cppref/contact_solver_fma.c -o cppref/ref_bench_fma
+./cppref/ref_dynamics_fma > vectors/dynamics_vectors_fma.txt
+# Fused bench reference checksum; the relaxed bake's bits line must match.
+./cppref/ref_bench_fma
+
+"$RASC" ../_verifyC.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime minimal --enable-relaxed-simd -o verifyC.wasm
+echo "== debug rasc relaxed build =="
+VERIFYC_VECTORS=./vectors/dynamics_vectors_fma.txt node verifyC.mjs
+
+"$RASC" ../_verifyC.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime minimal --enable-relaxed-simd -O2 -o verifyC.wasm
+echo "== -O2 rasc relaxed build =="
+VERIFYC_VECTORS=./vectors/dynamics_vectors_fma.txt node verifyC.mjs
+
+# Relaxed bench module for the AOT and V8 lanes.
+"$RASC" ../bench_stub.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub -O2 --enable-relaxed-simd -o bench_relaxed.wasm
+
+echo "phase A+B+C verification: all green, scalar, simd, and relaxed-fma"
