@@ -4,13 +4,13 @@
 import { B2_NULL_INDEX } from "./core";
 import { B2_LINEAR_SLOP, B2_GRAPH_COLOR_COUNT } from "./constants";
 import { b2Transform, b2Vec2, b2Sub, b2MaxFloat } from "./math_functions";
-import { b2Manifold, b2SimplexCache } from "./collision";
+import { b2Manifold, b2ManifoldPoint, b2SimplexCache } from "./collision";
 import { b2ShapeId, b2ContactId } from "./id";
 import {
     b2CollideCircles, b2CollideCapsuleAndCircle, b2CollideCapsules, b2CollidePolygonAndCircle,
-    b2CollidePolygonAndCapsule, b2CollidePolygons, b2CollideSegmentAndCircle, b2CollideSegmentAndCapsule,
-    b2CollideSegmentAndPolygon, b2CollideChainSegmentAndCircle, b2CollideChainSegmentAndCapsule,
-    b2CollideChainSegmentAndPolygon,
+    b2CollidePolygonAndCapsule, b2CollidePolygons, b2CollidePolygonsInto, b2CollideSegmentAndCircle,
+    b2CollideSegmentAndCapsule, b2CollideSegmentAndPolygon, b2CollideChainSegmentAndCircle,
+    b2CollideChainSegmentAndCapsule, b2CollideChainSegmentAndPolygon,
 } from "./manifold";
 import { B2_SHAPE_PAIR_KEY, b2AddKey, b2RemoveKey } from "./table";
 import { b2AllocId, b2FreeId } from "./id_pool";
@@ -172,6 +172,74 @@ function b2ComputeManifold(shapeA: b2Shape, xfA: b2Transform, shapeB: b2Shape, x
     assert(false);
     return new b2Manifold();
 }
+
+function b2CopyManifoldPoint(dst: b2ManifoldPoint, src: b2ManifoldPoint): void {
+    dst.point.x = src.point.x;
+    dst.point.y = src.point.y;
+    dst.anchorA.x = src.anchorA.x;
+    dst.anchorA.y = src.anchorA.y;
+    dst.anchorB.x = src.anchorB.x;
+    dst.anchorB.y = src.anchorB.y;
+    dst.separation = src.separation;
+    dst.normalImpulse = src.normalImpulse;
+    dst.tangentImpulse = src.tangentImpulse;
+    dst.totalNormalImpulse = src.totalNormalImpulse;
+    dst.normalVelocity = src.normalVelocity;
+    dst.id = src.id;
+    dst.persisted = src.persisted;
+}
+
+// C's by-value manifold assignment.
+function b2CopyManifold(dst: b2Manifold, src: b2Manifold): void {
+    dst.normal.x = src.normal.x;
+    dst.normal.y = src.normal.y;
+    dst.rollingImpulse = src.rollingImpulse;
+    dst.pointCount = src.pointCount;
+    b2CopyManifoldPoint(unchecked(dst.points[0]), unchecked(src.points[0]));
+    b2CopyManifoldPoint(unchecked(dst.points[1]), unchecked(src.points[1]));
+}
+
+// Restores the fresh-constructed state so an in-place collide observes the
+// same values as an allocated result.
+function b2ResetManifold(dst: b2Manifold): void {
+    dst.normal.x = 0.0;
+    dst.normal.y = 0.0;
+    dst.rollingImpulse = 0.0;
+    dst.pointCount = 0;
+    for (let i = 0; i < 2; ++i) {
+        let mp = unchecked(dst.points[i]);
+        mp.point.x = 0.0;
+        mp.point.y = 0.0;
+        mp.anchorA.x = 0.0;
+        mp.anchorA.y = 0.0;
+        mp.anchorB.x = 0.0;
+        mp.anchorB.y = 0.0;
+        mp.separation = 0.0;
+        mp.normalImpulse = 0.0;
+        mp.tangentImpulse = 0.0;
+        mp.totalNormalImpulse = 0.0;
+        mp.normalVelocity = 0.0;
+        mp.id = 0;
+        mp.persisted = false;
+    }
+}
+
+// In-place b2ComputeManifold for the narrow phase: the polygon pair (the hot
+// one) computes straight into dst; the rest keep the allocating collide
+// functions and copy over.
+function b2ComputeManifoldInto(shapeA: b2Shape, xfA: b2Transform, shapeB: b2Shape, xfB: b2Transform,
+    cache: b2SimplexCache, dst: b2Manifold): void {
+    if (shapeA.type == b2_polygonShape && shapeB.type == b2_polygonShape) {
+        b2ResetManifold(dst);
+        b2CollidePolygonsInto(shapeA.polygon!, xfA, shapeB.polygon!, xfB, dst);
+        return;
+    }
+    b2CopyManifold(dst, b2ComputeManifold(shapeA, xfA, shapeB, xfB, cache));
+}
+
+// Scratch for b2UpdateContact's by-value copy of the previous manifold;
+// single threaded, consumed before the next update.
+const s_oldManifold = new b2Manifold();
 
 export function b2CreateContact(world: b2World, shapeA: b2Shape, shapeB: b2Shape): void {
     let type1 = shapeA.type;
@@ -431,12 +499,13 @@ export function b2GetContactSim(world: b2World, contact: b2Contact): b2ContactSi
 // Note: do not assume the shape AABBs are overlapping or are valid.
 export function b2UpdateContact(world: b2World, contactSim: b2ContactSim, shapeA: b2Shape, transformA: b2Transform,
     centerOffsetA: b2Vec2, shapeB: b2Shape, transformB: b2Transform, centerOffsetB: b2Vec2): bool {
-    // Save old manifold (the new manifold below is a fresh object, so the old
-    // reference keeps the previous contents like C's by-value copy)
-    let oldManifold = contactSim.manifold;
+    // Save old manifold values (C's by-value copy) so the contact's manifold
+    // object can be recomputed in place without a fresh allocation.
+    let oldManifold = s_oldManifold;
+    b2CopyManifold(oldManifold, contactSim.manifold);
 
     // Compute new manifold
-    contactSim.manifold = b2ComputeManifold(shapeA, transformA, shapeB, transformB, contactSim.cache);
+    b2ComputeManifoldInto(shapeA, transformA, shapeB, transformB, contactSim.cache, contactSim.manifold);
 
     // Keep these updated in case the values on the shapes are modified
     contactSim.friction = world.frictionCallback.mix(shapeA.material.friction, shapeA.material.userMaterialId,
@@ -488,7 +557,8 @@ export function b2UpdateContact(world: b2World, contactSim: b2ContactSim, shapeA
     // This flag is for testing
     if (world.enableSpeculative == false && pointCount == 2) {
         if (contactSim.manifold.points[0].separation > <f32>1.5 * B2_LINEAR_SLOP()) {
-            contactSim.manifold.points[0] = contactSim.manifold.points[1];
+            // C struct copy; a reference swap would alias the reused points.
+            b2CopyManifoldPoint(contactSim.manifold.points[0], contactSim.manifold.points[1]);
             contactSim.manifold.pointCount = 1;
         } else if (contactSim.manifold.points[0].separation > <f32>1.5 * B2_LINEAR_SLOP()) {
             contactSim.manifold.pointCount = 1;
@@ -514,8 +584,10 @@ export function b2UpdateContact(world: b2World, contactSim: b2ContactSim, shapeA
         let mp2 = contactSim.manifold.points[i];
 
         // shift anchors to be center of mass relative
-        mp2.anchorA = b2Sub(mp2.anchorA, centerOffsetA);
-        mp2.anchorB = b2Sub(mp2.anchorB, centerOffsetB);
+        mp2.anchorA.x = mp2.anchorA.x - centerOffsetA.x;
+        mp2.anchorA.y = mp2.anchorA.y - centerOffsetA.y;
+        mp2.anchorB.x = mp2.anchorB.x - centerOffsetB.x;
+        mp2.anchorB.y = mp2.anchorB.y - centerOffsetB.y;
 
         mp2.normalImpulse = 0.0;
         mp2.tangentImpulse = 0.0;

@@ -487,9 +487,9 @@ export function b2CollidePolygonAndCapsule(polygonA: b2Polygon, xfA: b2Transform
 }
 
 // Polygon clipper used to compute contact points when there are potentially two contact points.
-function b2ClipPolygons(polyA: b2Polygon, polyB: b2Polygon, edgeA: i32, edgeB: i32, flip: bool): b2Manifold {
-    let manifold = new b2Manifold();
-
+// Writes into the caller's manifold (fresh, pointCount 0) with flattened f32
+// math; op order matches the allocating version exactly.
+function b2ClipPolygons(polyA: b2Polygon, polyB: b2Polygon, edgeA: i32, edgeB: i32, flip: bool, manifold: b2Manifold): void {
     // reference polygon
     let poly1: b2Polygon;
     let i11: i32, i12: i32;
@@ -515,6 +515,8 @@ function b2ClipPolygons(polyA: b2Polygon, polyB: b2Polygon, edgeA: i32, edgeB: i
     }
 
     let normal = poly1.normals[i11];
+    let normalX: f32 = normal.x;
+    let normalY: f32 = normal.y;
 
     // Reference edge vertices
     let v11 = poly1.vertices[i11];
@@ -524,52 +526,68 @@ function b2ClipPolygons(polyA: b2Polygon, polyB: b2Polygon, edgeA: i32, edgeB: i
     let v21 = poly2.vertices[i21];
     let v22 = poly2.vertices[i22];
 
-    let tangent = b2CrossSV(1.0, normal);
+    // tangent = b2CrossSV(1, normal)
+    let tangentX: f32 = -normalY;
+    let tangentY: f32 = normalX;
 
     let lower1: f32 = 0.0;
-    let upper1: f32 = b2Dot(b2Sub(v12, v11), tangent);
+    let upper1: f32 = (v12.x - v11.x) * tangentX + (v12.y - v11.y) * tangentY;
 
     // Incident edge points opposite of tangent due to CCW winding
-    let upper2: f32 = b2Dot(b2Sub(v21, v11), tangent);
-    let lower2: f32 = b2Dot(b2Sub(v22, v11), tangent);
+    let upper2: f32 = (v21.x - v11.x) * tangentX + (v21.y - v11.y) * tangentY;
+    let lower2: f32 = (v22.x - v11.x) * tangentX + (v22.y - v11.y) * tangentY;
 
     // Are the segments disjoint?
     if (upper2 < lower1 || upper1 < lower2) {
-        return manifold;
+        return;
     }
 
-    let vLower: b2Vec2;
+    let vLowerX: f32, vLowerY: f32;
     if (lower2 < lower1 && upper2 - lower2 > FLT_EPSILON) {
-        vLower = b2Lerp(v22, v21, (lower1 - lower2) / (upper2 - lower2));
+        let t: f32 = (lower1 - lower2) / (upper2 - lower2);
+        vLowerX = (<f32>1.0 - t) * v22.x + t * v21.x;
+        vLowerY = (<f32>1.0 - t) * v22.y + t * v21.y;
     } else {
-        vLower = v22;
+        vLowerX = v22.x;
+        vLowerY = v22.y;
     }
 
-    let vUpper: b2Vec2;
+    let vUpperX: f32, vUpperY: f32;
     if (upper2 > upper1 && upper2 - lower2 > FLT_EPSILON) {
-        vUpper = b2Lerp(v22, v21, (upper1 - lower2) / (upper2 - lower2));
+        let t: f32 = (upper1 - lower2) / (upper2 - lower2);
+        vUpperX = (<f32>1.0 - t) * v22.x + t * v21.x;
+        vUpperY = (<f32>1.0 - t) * v22.y + t * v21.y;
     } else {
-        vUpper = v21;
+        vUpperX = v21.x;
+        vUpperY = v21.y;
     }
 
-    let separationLower: f32 = b2Dot(b2Sub(vLower, v11), normal);
-    let separationUpper: f32 = b2Dot(b2Sub(vUpper, v11), normal);
+    let separationLower: f32 = (vLowerX - v11.x) * normalX + (vLowerY - v11.y) * normalY;
+    let separationUpper: f32 = (vUpperX - v11.x) * normalX + (vUpperY - v11.y) * normalY;
 
     let r1: f32 = poly1.radius;
     let r2: f32 = poly2.radius;
 
     // Put contact points at midpoint, accounting for radii
-    vLower = b2MulAdd(vLower, <f32>0.5 * (r1 - r2 - separationLower), normal);
-    vUpper = b2MulAdd(vUpper, <f32>0.5 * (r1 - r2 - separationUpper), normal);
+    {
+        let sLower: f32 = <f32>0.5 * (r1 - r2 - separationLower);
+        vLowerX = vLowerX + sLower * normalX;
+        vLowerY = vLowerY + sLower * normalY;
+        let sUpper: f32 = <f32>0.5 * (r1 - r2 - separationUpper);
+        vUpperX = vUpperX + sUpper * normalX;
+        vUpperY = vUpperY + sUpper * normalY;
+    }
 
     let radius: f32 = r1 + r2;
 
     if (flip == false) {
-        manifold.normal = normal.clone();
+        manifold.normal.x = normalX;
+        manifold.normal.y = normalY;
 
         {
             let cp = manifold.points[0];
-            cp.anchorA = vLower;
+            cp.anchorA.x = vLowerX;
+            cp.anchorA.y = vLowerY;
             cp.separation = separationLower - radius;
             cp.id = B2_MAKE_ID(i11, i22);
             manifold.pointCount += 1;
@@ -577,17 +595,20 @@ function b2ClipPolygons(polyA: b2Polygon, polyB: b2Polygon, edgeA: i32, edgeB: i
 
         {
             let cp = manifold.points[1];
-            cp.anchorA = vUpper;
+            cp.anchorA.x = vUpperX;
+            cp.anchorA.y = vUpperY;
             cp.separation = separationUpper - radius;
             cp.id = B2_MAKE_ID(i12, i21);
             manifold.pointCount += 1;
         }
     } else {
-        manifold.normal = b2Neg(normal);
+        manifold.normal.x = -normalX;
+        manifold.normal.y = -normalY;
 
         {
             let cp = manifold.points[0];
-            cp.anchorA = vUpper;
+            cp.anchorA.x = vUpperX;
+            cp.anchorA.y = vUpperY;
             cp.separation = separationUpper - radius;
             cp.id = B2_MAKE_ID(i21, i12);
             manifold.pointCount += 1;
@@ -595,14 +616,13 @@ function b2ClipPolygons(polyA: b2Polygon, polyB: b2Polygon, edgeA: i32, edgeB: i
 
         {
             let cp = manifold.points[1];
-            cp.anchorA = vLower;
+            cp.anchorA.x = vLowerX;
+            cp.anchorA.y = vLowerY;
             cp.separation = separationLower - radius;
             cp.id = B2_MAKE_ID(i22, i11);
             manifold.pointCount += 1;
         }
     }
-
-    return manifold;
 }
 
 // C returns the edge index through a pointer; the pair travels in a class.
@@ -661,6 +681,16 @@ function b2FindMaxSeparation(poly1: b2Polygon, poly2: b2Polygon): b2MaxSeparatio
 // clipping strategy outline.
 export function b2CollidePolygons(polygonA: b2Polygon, xfA: b2Transform, polygonB: b2Polygon,
     xfB: b2Transform): b2Manifold {
+    let manifold = new b2Manifold();
+    b2CollidePolygonsInto(polygonA, xfA, polygonB, xfB, manifold);
+    return manifold;
+}
+
+// In-place variant for the contact update hot path: manifold must be in the
+// fresh-constructed state (b2ResetManifold), so reuse observes the same
+// values as an allocated result.
+export function b2CollidePolygonsInto(polygonA: b2Polygon, xfA: b2Transform, polygonB: b2Polygon,
+    xfB: b2Transform, manifold: b2Manifold): void {
     let origin = polygonA.vertices[0];
     let linearSlop: f32 = B2_LINEAR_SLOP();
     let speculativeDistance: f32 = B2_SPECULATIVE_DISTANCE();
@@ -727,7 +757,7 @@ export function b2CollidePolygons(polygonA: b2Polygon, xfA: b2Transform, polygon
     let radius: f32 = localPolyA.radius + localPolyB.radius;
 
     if (separationA > speculativeDistance + radius || separationB > speculativeDistance + radius) {
-        return new b2Manifold();
+        return;
     }
 
     // Find incident edge
@@ -768,8 +798,6 @@ export function b2CollidePolygons(polygonA: b2Polygon, xfA: b2Transform, polygon
         }
     }
 
-    let manifold = new b2Manifold();
-
     // Using slop here to ensure vertex-vertex normal vectors can be safely normalized
     if (separationA > <f32>0.1 * linearSlop || separationB > <f32>0.1 * linearSlop) {
         // Edges are disjoint. Find closest points between reference edge and incident edge
@@ -791,11 +819,11 @@ export function b2CollidePolygons(polygonA: b2Polygon, xfA: b2Transform, polygon
 
         if (distance - radius > speculativeDistance) {
             // This can happen in the vertex-vertex case
-            return manifold;
+            return;
         }
 
         // Attempt to clip edges
-        manifold = b2ClipPolygons(localPolyA, localPolyB, edgeA, edgeB, flip);
+        b2ClipPolygons(localPolyA, localPolyB, edgeA, edgeB, flip, manifold);
 
         let minSeparation: f32 = FLT_MAX;
         for (let i = 0; i < manifold.pointCount; ++i) {
@@ -804,87 +832,113 @@ export function b2CollidePolygons(polygonA: b2Polygon, xfA: b2Transform, polygon
 
         // Does vertex-vertex have substantially larger separation?
         if (separation + <f32>0.1 * linearSlop < minSeparation) {
+            let invDistance: f32 = <f32>1.0 / distance;
             if (result.fraction1 == 0.0 && result.fraction2 == 0.0) {
                 // v11 - v21
-                let normal = b2Sub(v21, v11);
-                let invDistance: f32 = <f32>1.0 / distance;
-                normal.x *= invDistance;
-                normal.y *= invDistance;
+                let normalX: f32 = (v21.x - v11.x) * invDistance;
+                let normalY: f32 = (v21.y - v11.y) * invDistance;
 
-                let c1 = b2MulAdd(v11, localPolyA.radius, normal);
-                let c2 = b2MulAdd(v21, -localPolyB.radius, normal);
+                let c1x: f32 = v11.x + localPolyA.radius * normalX;
+                let c1y: f32 = v11.y + localPolyA.radius * normalY;
+                let c2x: f32 = v21.x + -localPolyB.radius * normalX;
+                let c2y: f32 = v21.y + -localPolyB.radius * normalY;
 
-                manifold.normal = normal;
-                manifold.points[0].anchorA = b2Lerp(c1, c2, 0.5);
-                manifold.points[0].separation = distance - radius;
-                manifold.points[0].id = B2_MAKE_ID(i11, i21);
+                manifold.normal.x = normalX;
+                manifold.normal.y = normalY;
+                let mp = manifold.points[0];
+                mp.anchorA.x = <f32>0.5 * c1x + <f32>0.5 * c2x;
+                mp.anchorA.y = <f32>0.5 * c1y + <f32>0.5 * c2y;
+                mp.separation = distance - radius;
+                mp.id = B2_MAKE_ID(i11, i21);
                 manifold.pointCount = 1;
             } else if (result.fraction1 == 0.0 && result.fraction2 == 1.0) {
                 // v11 - v22
-                let normal = b2Sub(v22, v11);
-                let invDistance: f32 = <f32>1.0 / distance;
-                normal.x *= invDistance;
-                normal.y *= invDistance;
+                let normalX: f32 = (v22.x - v11.x) * invDistance;
+                let normalY: f32 = (v22.y - v11.y) * invDistance;
 
-                let c1 = b2MulAdd(v11, localPolyA.radius, normal);
-                let c2 = b2MulAdd(v22, -localPolyB.radius, normal);
+                let c1x: f32 = v11.x + localPolyA.radius * normalX;
+                let c1y: f32 = v11.y + localPolyA.radius * normalY;
+                let c2x: f32 = v22.x + -localPolyB.radius * normalX;
+                let c2y: f32 = v22.y + -localPolyB.radius * normalY;
 
-                manifold.normal = normal;
-                manifold.points[0].anchorA = b2Lerp(c1, c2, 0.5);
-                manifold.points[0].separation = distance - radius;
-                manifold.points[0].id = B2_MAKE_ID(i11, i22);
+                manifold.normal.x = normalX;
+                manifold.normal.y = normalY;
+                let mp = manifold.points[0];
+                mp.anchorA.x = <f32>0.5 * c1x + <f32>0.5 * c2x;
+                mp.anchorA.y = <f32>0.5 * c1y + <f32>0.5 * c2y;
+                mp.separation = distance - radius;
+                mp.id = B2_MAKE_ID(i11, i22);
                 manifold.pointCount = 1;
             } else if (result.fraction1 == 1.0 && result.fraction2 == 0.0) {
                 // v12 - v21
-                let normal = b2Sub(v21, v12);
-                let invDistance: f32 = <f32>1.0 / distance;
-                normal.x *= invDistance;
-                normal.y *= invDistance;
+                let normalX: f32 = (v21.x - v12.x) * invDistance;
+                let normalY: f32 = (v21.y - v12.y) * invDistance;
 
-                let c1 = b2MulAdd(v12, localPolyA.radius, normal);
-                let c2 = b2MulAdd(v21, -localPolyB.radius, normal);
+                let c1x: f32 = v12.x + localPolyA.radius * normalX;
+                let c1y: f32 = v12.y + localPolyA.radius * normalY;
+                let c2x: f32 = v21.x + -localPolyB.radius * normalX;
+                let c2y: f32 = v21.y + -localPolyB.radius * normalY;
 
-                manifold.normal = normal;
-                manifold.points[0].anchorA = b2Lerp(c1, c2, 0.5);
-                manifold.points[0].separation = distance - radius;
-                manifold.points[0].id = B2_MAKE_ID(i12, i21);
+                manifold.normal.x = normalX;
+                manifold.normal.y = normalY;
+                let mp = manifold.points[0];
+                mp.anchorA.x = <f32>0.5 * c1x + <f32>0.5 * c2x;
+                mp.anchorA.y = <f32>0.5 * c1y + <f32>0.5 * c2y;
+                mp.separation = distance - radius;
+                mp.id = B2_MAKE_ID(i12, i21);
                 manifold.pointCount = 1;
             } else if (result.fraction1 == 1.0 && result.fraction2 == 1.0) {
                 // v12 - v22
-                let normal = b2Sub(v22, v12);
-                let invDistance: f32 = <f32>1.0 / distance;
-                normal.x *= invDistance;
-                normal.y *= invDistance;
+                let normalX: f32 = (v22.x - v12.x) * invDistance;
+                let normalY: f32 = (v22.y - v12.y) * invDistance;
 
-                let c1 = b2MulAdd(v12, localPolyA.radius, normal);
-                let c2 = b2MulAdd(v22, -localPolyB.radius, normal);
+                let c1x: f32 = v12.x + localPolyA.radius * normalX;
+                let c1y: f32 = v12.y + localPolyA.radius * normalY;
+                let c2x: f32 = v22.x + -localPolyB.radius * normalX;
+                let c2y: f32 = v22.y + -localPolyB.radius * normalY;
 
-                manifold.normal = normal;
-                manifold.points[0].anchorA = b2Lerp(c1, c2, 0.5);
-                manifold.points[0].separation = distance - radius;
-                manifold.points[0].id = B2_MAKE_ID(i12, i22);
+                manifold.normal.x = normalX;
+                manifold.normal.y = normalY;
+                let mp = manifold.points[0];
+                mp.anchorA.x = <f32>0.5 * c1x + <f32>0.5 * c2x;
+                mp.anchorA.y = <f32>0.5 * c1y + <f32>0.5 * c2y;
+                mp.separation = distance - radius;
+                mp.id = B2_MAKE_ID(i12, i22);
                 manifold.pointCount = 1;
             }
         }
     } else {
         // Polygons overlap
-        manifold = b2ClipPolygons(localPolyA, localPolyB, edgeA, edgeB, flip);
+        b2ClipPolygons(localPolyA, localPolyB, edgeA, edgeB, flip, manifold);
     }
 
     // Convert manifold to world space
     if (manifold.pointCount > 0) {
-        manifold.normal = b2RotateVector(xfA.q, manifold.normal);
+        let qc: f32 = xfA.q.c;
+        let qs: f32 = xfA.q.s;
+        let normal = manifold.normal;
+        let nx: f32 = normal.x;
+        let ny: f32 = normal.y;
+        normal.x = qc * nx - qs * ny;
+        normal.y = qs * nx + qc * ny;
+        let dxAB: f32 = xfA.p.x - xfB.p.x;
+        let dyAB: f32 = xfA.p.y - xfB.p.y;
         for (let i = 0; i < manifold.pointCount; ++i) {
             let mp = manifold.points[i];
 
             // anchor points relative to shape origin in world space
-            mp.anchorA = b2RotateVector(xfA.q, b2Add(mp.anchorA, origin));
-            mp.anchorB = b2Add(mp.anchorA, b2Sub(xfA.p, xfB.p));
-            mp.point = b2Add(xfA.p, mp.anchorA);
+            let lx: f32 = mp.anchorA.x + origin.x;
+            let ly: f32 = mp.anchorA.y + origin.y;
+            let ax: f32 = qc * lx - qs * ly;
+            let ay: f32 = qs * lx + qc * ly;
+            mp.anchorA.x = ax;
+            mp.anchorA.y = ay;
+            mp.anchorB.x = ax + dxAB;
+            mp.anchorB.y = ay + dyAB;
+            mp.point.x = xfA.p.x + ax;
+            mp.point.y = xfA.p.y + ay;
         }
     }
-
-    return manifold;
 }
 
 export function b2CollideSegmentAndCircle(segmentA: b2Segment, xfA: b2Transform, circleB: b2Circle,
