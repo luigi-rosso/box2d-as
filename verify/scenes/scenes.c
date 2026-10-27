@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Trajectory parity scenes. Plain C over the public Box2D API so verify/scenes/scenes.as can mirror
 // each builder statement for statement. Add a scene here and in scenes.as, then list it in
-// s_sceneNames, in verify/traj.mjs and in verify/traj.sh. C leaves the evaluation order of function
+// s_sceneNames, in verify/traj.mjs and in verify/traj.sh, and in the bench harness (bench/web/core.mjs,
+// bench/web/verify.sh, bench/as/main.as). C leaves the evaluation order of function
 // arguments and initializers open, so every random draw is its own statement.
 
 #include "scenes.h"
