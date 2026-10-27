@@ -372,6 +372,10 @@ export struct b2WheelJoint {
 /// The base joint class. Joints are used to constraint two bodies together in
 /// various fashions. Some joints also feature limits and motors.
 export struct b2JointSim {
+	// C's union: each joint type overlays these words through b2<Type>JointAt. First, so the word before a
+	// sim and before its payload is the same: the previous sim's viewGuard, or the array buffer's byte size.
+	payload: b2JointPayload = b2JointPayload();
+
 	jointId: i32 = 0;
 
 	bodyIdA: i32 = 0;
@@ -395,15 +399,59 @@ export struct b2JointSim {
 	forceThreshold: f32 = 0;
 	torqueThreshold: f32 = 0;
 
-	// C's union, one field per member
-	distanceJoint: b2DistanceJoint = b2DistanceJoint();
-	motorJoint: b2MotorJoint = b2MotorJoint();
-	moverJoint: b2MoverJoint = b2MoverJoint();
-	pogoJoint: b2PogoJoint = b2PogoJoint();
-	revoluteJoint: b2RevoluteJoint = b2RevoluteJoint();
-	prismaticJoint: b2PrismaticJoint = b2PrismaticJoint();
-	weldJoint: b2WeldJoint = b2WeldJoint();
-	wheelJoint: b2WheelJoint = b2WheelJoint();
+	// rasc range checks a ref into a view even under unchecked, against the word before the element read as a
+	// byte length; this keeps that word large for the next sim in the array. b2CreateJoint sets it, copies keep it.
+	viewGuard: u32 = B2_JOINT_VIEW_GUARD;
+}
+
+export const B2_JOINT_VIEW_GUARD: u32 = 0x7fffffff;
+
+// As large as the largest joint type (b2MotorJoint, 160 bytes); copied as words, so every type's bits survive
+export struct b2JointPayload {
+	words: FixedArray<u32, 40>;
+}
+
+// C points at a joint sim and its union member; these view memory at a sim's address so they bind by ref
+// in place, valid until the sim's array grows
+@inline export unsafe function b2JointSimAddress(sims: StaticArray<b2JointSim>, index: i32): usize {
+	if (B2_ASSERT_ENABLED) B2_ASSERT(0 <= index && index < sims.length);
+	return changetype<usize>(sims) + <usize>index * sizeof<b2JointSim>();
+}
+
+@inline export unsafe function b2JointSimAt(sim: usize): StaticArray<b2JointSim> {
+	return changetype<StaticArray<b2JointSim>>(sim);
+}
+
+@inline export unsafe function b2DistanceJointAt(sim: usize): StaticArray<b2DistanceJoint> {
+	return changetype<StaticArray<b2DistanceJoint>>(sim + offsetof<b2JointSim>("payload"));
+}
+
+@inline export unsafe function b2MotorJointAt(sim: usize): StaticArray<b2MotorJoint> {
+	return changetype<StaticArray<b2MotorJoint>>(sim + offsetof<b2JointSim>("payload"));
+}
+
+@inline export unsafe function b2MoverJointAt(sim: usize): StaticArray<b2MoverJoint> {
+	return changetype<StaticArray<b2MoverJoint>>(sim + offsetof<b2JointSim>("payload"));
+}
+
+@inline export unsafe function b2PogoJointAt(sim: usize): StaticArray<b2PogoJoint> {
+	return changetype<StaticArray<b2PogoJoint>>(sim + offsetof<b2JointSim>("payload"));
+}
+
+@inline export unsafe function b2RevoluteJointAt(sim: usize): StaticArray<b2RevoluteJoint> {
+	return changetype<StaticArray<b2RevoluteJoint>>(sim + offsetof<b2JointSim>("payload"));
+}
+
+@inline export unsafe function b2PrismaticJointAt(sim: usize): StaticArray<b2PrismaticJoint> {
+	return changetype<StaticArray<b2PrismaticJoint>>(sim + offsetof<b2JointSim>("payload"));
+}
+
+@inline export unsafe function b2WeldJointAt(sim: usize): StaticArray<b2WeldJoint> {
+	return changetype<StaticArray<b2WeldJoint>>(sim + offsetof<b2JointSim>("payload"));
+}
+
+@inline export unsafe function b2WheelJointAt(sim: usize): StaticArray<b2WheelJoint> {
+	return changetype<StaticArray<b2WheelJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
 
@@ -481,6 +529,13 @@ export function b2GetJointSimCheckType(jointId: b2JointId, type: b2JointType): i
 export unsafe function b2GetJointSimViewCheckType(jointId: b2JointId, type: b2JointType): StaticArray<b2JointSim> {
 	let joint = b2GetJointSimCheckType(jointId, type);
 	return b2GetJointSimView(b2GetWorld(jointId.world0), joint);
+}
+
+// C's b2GetJointSimCheckType pointer, as an address for b2JointSimAt and the b2<Type>JointAt views
+export unsafe function b2GetJointSimAddressCheckType(jointId: b2JointId, type: b2JointType): usize {
+	let joint = b2GetJointSimCheckType(jointId, type);
+	let world = b2GetWorld(jointId.world0);
+	return b2JointSimAddress(b2GetJointSimView(world, joint), world.joints[joint].localIndex);
 }
 
 export function b2GetJointLocalIndex(jointId: b2JointId): i32 {
@@ -615,6 +670,7 @@ function b2CreateJoint(world: b2World, def: b2JointDef, type: b2JointType): i32 
 		set.jointSims[localIndex].jointId = jointId;
 		set.jointSims[localIndex].bodyIdA = bodyIdA;
 		set.jointSims[localIndex].bodyIdB = bodyIdB;
+		set.jointSims[localIndex].viewGuard = B2_JOINT_VIEW_GUARD;
 	} else if (world.bodies[bodyA].type != b2_dynamicBody && world.bodies[bodyB].type != b2_dynamicBody) {
 		// joint is not attached to a dynamic body
 		let set = world.solverSets[b2_staticSet];
@@ -625,6 +681,7 @@ function b2CreateJoint(world: b2World, def: b2JointDef, type: b2JointType): i32 
 		set.jointSims[localIndex].jointId = jointId;
 		set.jointSims[localIndex].bodyIdA = bodyIdA;
 		set.jointSims[localIndex].bodyIdB = bodyIdB;
+		set.jointSims[localIndex].viewGuard = B2_JOINT_VIEW_GUARD;
 	} else if (setIndexA == b2_awakeSet || setIndexB == b2_awakeSet) {
 		// if either body is sleeping, wake it
 		if (maxSetIndex >= b2_firstSleepingSet) {
@@ -638,6 +695,7 @@ function b2CreateJoint(world: b2World, def: b2JointDef, type: b2JointType): i32 
 		sims[localIndex].jointId = jointId;
 		sims[localIndex].bodyIdA = bodyIdA;
 		sims[localIndex].bodyIdB = bodyIdB;
+		sims[localIndex].viewGuard = B2_JOINT_VIEW_GUARD;
 	} else {
 		// joint connected between sleeping and/or static bodies
 		B2_ASSERT(setIndexA >= b2_firstSleepingSet || setIndexB >= b2_firstSleepingSet);
@@ -655,6 +713,7 @@ function b2CreateJoint(world: b2World, def: b2JointDef, type: b2JointType): i32 
 		set.jointSims[localIndex].jointId = jointId;
 		set.jointSims[localIndex].bodyIdA = bodyIdA;
 		set.jointSims[localIndex].bodyIdB = bodyIdB;
+		set.jointSims[localIndex].viewGuard = B2_JOINT_VIEW_GUARD;
 
 		if (setIndexA != setIndexB && setIndexA >= b2_firstSleepingSet && setIndexB >= b2_firstSleepingSet) {
 			// merge sleeping sets
@@ -730,25 +789,29 @@ export unsafe function b2CreateDistanceJoint(worldId: b2WorldId, def: b2Distance
 	let id = b2CreateJoint(world, def.base, b2_distanceJoint);
 
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointDistanceView = b2DistanceJointAt(jointAddress);
+	ref jointDistance = unchecked(jointDistanceView[0]);
 
-	joint.distanceJoint = b2DistanceJoint();
-	joint.distanceJoint.length = b2MaxFloat(def.length, B2_LINEAR_SLOP());
-	joint.distanceJoint.hertz = def.hertz;
-	joint.distanceJoint.dampingRatio = def.dampingRatio;
-	joint.distanceJoint.minLength = b2MaxFloat(def.minLength, B2_LINEAR_SLOP());
-	joint.distanceJoint.maxLength = b2MaxFloat(def.minLength, def.maxLength);
-	joint.distanceJoint.maxMotorForce = def.maxMotorForce;
-	joint.distanceJoint.motorSpeed = def.motorSpeed;
-	joint.distanceJoint.enableSpring = def.enableSpring;
-	joint.distanceJoint.lowerSpringForce = b2MinFloat(def.lowerSpringForce, def.upperSpringForce);
-	joint.distanceJoint.upperSpringForce = b2MaxFloat(def.lowerSpringForce, def.upperSpringForce);
-	joint.distanceJoint.enableLimit = def.enableLimit;
-	joint.distanceJoint.enableMotor = def.enableMotor;
-	joint.distanceJoint.impulse = 0.0;
-	joint.distanceJoint.lowerImpulse = 0.0;
-	joint.distanceJoint.upperImpulse = 0.0;
-	joint.distanceJoint.motorImpulse = 0.0;
+	jointDistance = b2DistanceJoint();
+	jointDistance.length = b2MaxFloat(def.length, B2_LINEAR_SLOP());
+	jointDistance.hertz = def.hertz;
+	jointDistance.dampingRatio = def.dampingRatio;
+	jointDistance.minLength = b2MaxFloat(def.minLength, B2_LINEAR_SLOP());
+	jointDistance.maxLength = b2MaxFloat(def.minLength, def.maxLength);
+	jointDistance.maxMotorForce = def.maxMotorForce;
+	jointDistance.motorSpeed = def.motorSpeed;
+	jointDistance.enableSpring = def.enableSpring;
+	jointDistance.lowerSpringForce = b2MinFloat(def.lowerSpringForce, def.upperSpringForce);
+	jointDistance.upperSpringForce = b2MaxFloat(def.lowerSpringForce, def.upperSpringForce);
+	jointDistance.enableLimit = def.enableLimit;
+	jointDistance.enableMotor = def.enableMotor;
+	jointDistance.impulse = 0.0;
+	jointDistance.lowerImpulse = 0.0;
+	jointDistance.upperImpulse = 0.0;
+	jointDistance.motorImpulse = 0.0;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -797,19 +860,23 @@ export unsafe function b2CreateMotorJoint(worldId: b2WorldId, def: b2MotorJointD
 
 	let id = b2CreateJoint(world, def.base, b2_motorJoint);
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointMotorView = b2MotorJointAt(jointAddress);
+	ref jointMotor = unchecked(jointMotorView[0]);
 
-	joint.motorJoint = b2MotorJoint();
-	joint.motorJoint.linearVelocity = def.linearVelocity;
-	joint.motorJoint.maxVelocityForce = def.maxVelocityForce;
-	joint.motorJoint.angularVelocity = def.angularVelocity;
-	joint.motorJoint.maxVelocityTorque = def.maxVelocityTorque;
-	joint.motorJoint.linearHertz = def.linearHertz;
-	joint.motorJoint.linearDampingRatio = def.linearDampingRatio;
-	joint.motorJoint.maxSpringForce = def.maxSpringForce;
-	joint.motorJoint.angularHertz = def.angularHertz;
-	joint.motorJoint.angularDampingRatio = def.angularDampingRatio;
-	joint.motorJoint.maxSpringTorque = def.maxSpringTorque;
+	jointMotor = b2MotorJoint();
+	jointMotor.linearVelocity = def.linearVelocity;
+	jointMotor.maxVelocityForce = def.maxVelocityForce;
+	jointMotor.angularVelocity = def.angularVelocity;
+	jointMotor.maxVelocityTorque = def.maxVelocityTorque;
+	jointMotor.linearHertz = def.linearHertz;
+	jointMotor.linearDampingRatio = def.linearDampingRatio;
+	jointMotor.maxSpringForce = def.maxSpringForce;
+	jointMotor.angularHertz = def.angularHertz;
+	jointMotor.angularDampingRatio = def.angularDampingRatio;
+	jointMotor.maxSpringTorque = def.maxSpringTorque;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -831,11 +898,15 @@ export unsafe function b2CreateMoverJoint(worldId: b2WorldId, def: b2MoverJointD
 
 	let id = b2CreateJoint(world, def.base, b2_moverJoint);
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointMoverView = b2MoverJointAt(jointAddress);
+	ref jointMover = unchecked(jointMoverView[0]);
 
-	joint.moverJoint = b2MoverJoint();
-	joint.moverJoint.linearVelocity = def.linearVelocity;
-	joint.moverJoint.maxVelocityForce = def.maxVelocityForce;
+	jointMover = b2MoverJoint();
+	jointMover.linearVelocity = def.linearVelocity;
+	jointMover.maxVelocityForce = def.maxVelocityForce;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -863,17 +934,21 @@ export unsafe function b2CreatePogoJoint(worldId: b2WorldId, def: b2PogoJointDef
 
 	let id = b2CreateJoint(world, def.base, b2_pogoJoint);
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointPogoView = b2PogoJointAt(jointAddress);
+	ref jointPogo = unchecked(jointPogoView[0]);
 
-	joint.pogoJoint = b2PogoJoint();
-	joint.pogoJoint.restLength = def.restLength;
-	joint.pogoJoint.hertz = def.hertz;
-	joint.pogoJoint.dampingRatio = def.dampingRatio;
-	joint.pogoJoint.maxTensionForce = def.maxTensionForce;
-	joint.pogoJoint.maxCompressionForce = def.maxCompressionForce;
-	joint.pogoJoint.normal = def.normal;
-	joint.pogoJoint.impulse = def.impulse;
-	joint.pogoJoint.velocity = def.velocity;
+	jointPogo = b2PogoJoint();
+	jointPogo.restLength = def.restLength;
+	jointPogo.hertz = def.hertz;
+	jointPogo.dampingRatio = def.dampingRatio;
+	jointPogo.maxTensionForce = def.maxTensionForce;
+	jointPogo.maxCompressionForce = def.maxCompressionForce;
+	jointPogo.normal = def.normal;
+	jointPogo.impulse = def.impulse;
+	jointPogo.velocity = def.velocity;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -901,19 +976,23 @@ export unsafe function b2CreatePrismaticJoint(worldId: b2WorldId, def: b2Prismat
 
 	let id = b2CreateJoint(world, def.base, b2_prismaticJoint);
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointPrismaticView = b2PrismaticJointAt(jointAddress);
+	ref jointPrismatic = unchecked(jointPrismaticView[0]);
 
-	joint.prismaticJoint = b2PrismaticJoint();
-	joint.prismaticJoint.hertz = def.hertz;
-	joint.prismaticJoint.dampingRatio = def.dampingRatio;
-	joint.prismaticJoint.targetTranslation = def.targetTranslation;
-	joint.prismaticJoint.lowerTranslation = b2MinFloat(def.lowerTranslation, def.upperTranslation);
-	joint.prismaticJoint.upperTranslation = b2MaxFloat(def.lowerTranslation, def.upperTranslation);
-	joint.prismaticJoint.maxMotorForce = def.maxMotorForce;
-	joint.prismaticJoint.motorSpeed = def.motorSpeed;
-	joint.prismaticJoint.enableSpring = def.enableSpring;
-	joint.prismaticJoint.enableLimit = def.enableLimit;
-	joint.prismaticJoint.enableMotor = def.enableMotor;
+	jointPrismatic = b2PrismaticJoint();
+	jointPrismatic.hertz = def.hertz;
+	jointPrismatic.dampingRatio = def.dampingRatio;
+	jointPrismatic.targetTranslation = def.targetTranslation;
+	jointPrismatic.lowerTranslation = b2MinFloat(def.lowerTranslation, def.upperTranslation);
+	jointPrismatic.upperTranslation = b2MaxFloat(def.lowerTranslation, def.upperTranslation);
+	jointPrismatic.maxMotorForce = def.maxMotorForce;
+	jointPrismatic.motorSpeed = def.motorSpeed;
+	jointPrismatic.enableSpring = def.enableSpring;
+	jointPrismatic.enableLimit = def.enableLimit;
+	jointPrismatic.enableMotor = def.enableMotor;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -941,24 +1020,28 @@ export unsafe function b2CreateRevoluteJoint(worldId: b2WorldId, def: b2Revolute
 
 	let id = b2CreateJoint(world, def.base, b2_revoluteJoint);
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointRevoluteView = b2RevoluteJointAt(jointAddress);
+	ref jointRevolute = unchecked(jointRevoluteView[0]);
 
-	joint.revoluteJoint = b2RevoluteJoint();
+	jointRevolute = b2RevoluteJoint();
 
-	joint.revoluteJoint.targetAngle = b2ClampFloat(def.targetAngle, -B2_PI, B2_PI);
-	joint.revoluteJoint.hertz = def.hertz;
-	joint.revoluteJoint.dampingRatio = def.dampingRatio;
+	jointRevolute.targetAngle = b2ClampFloat(def.targetAngle, -B2_PI, B2_PI);
+	jointRevolute.hertz = def.hertz;
+	jointRevolute.dampingRatio = def.dampingRatio;
 
 	let lowerAngle = b2MinFloat(def.lowerAngle, def.upperAngle);
 	let upperAngle = b2MaxFloat(def.lowerAngle, def.upperAngle);
-	joint.revoluteJoint.lowerAngle = b2ClampFloat(lowerAngle, -0.99 * B2_PI, 0.99 * B2_PI);
-	joint.revoluteJoint.upperAngle = b2ClampFloat(upperAngle, -0.99 * B2_PI, 0.99 * B2_PI);
+	jointRevolute.lowerAngle = b2ClampFloat(lowerAngle, -0.99 * B2_PI, 0.99 * B2_PI);
+	jointRevolute.upperAngle = b2ClampFloat(upperAngle, -0.99 * B2_PI, 0.99 * B2_PI);
 
-	joint.revoluteJoint.maxMotorTorque = def.maxMotorTorque;
-	joint.revoluteJoint.motorSpeed = def.motorSpeed;
-	joint.revoluteJoint.enableSpring = def.enableSpring;
-	joint.revoluteJoint.enableLimit = def.enableLimit;
-	joint.revoluteJoint.enableMotor = def.enableMotor;
+	jointRevolute.maxMotorTorque = def.maxMotorTorque;
+	jointRevolute.motorSpeed = def.motorSpeed;
+	jointRevolute.enableSpring = def.enableSpring;
+	jointRevolute.enableLimit = def.enableLimit;
+	jointRevolute.enableMotor = def.enableMotor;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -982,15 +1065,19 @@ export unsafe function b2CreateWeldJoint(worldId: b2WorldId, def: b2WeldJointDef
 
 	let id = b2CreateJoint(world, def.base, b2_weldJoint);
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointWeldView = b2WeldJointAt(jointAddress);
+	ref jointWeld = unchecked(jointWeldView[0]);
 
-	joint.weldJoint = b2WeldJoint();
-	joint.weldJoint.linearHertz = def.linearHertz;
-	joint.weldJoint.linearDampingRatio = def.linearDampingRatio;
-	joint.weldJoint.angularHertz = def.angularHertz;
-	joint.weldJoint.angularDampingRatio = def.angularDampingRatio;
-	joint.weldJoint.linearImpulse = b2Vec2_zero;
-	joint.weldJoint.angularImpulse = 0.0;
+	jointWeld = b2WeldJoint();
+	jointWeld.linearHertz = def.linearHertz;
+	jointWeld.linearDampingRatio = def.linearDampingRatio;
+	jointWeld.angularHertz = def.angularHertz;
+	jointWeld.angularDampingRatio = def.angularDampingRatio;
+	jointWeld.linearImpulse = b2Vec2_zero;
+	jointWeld.angularImpulse = 0.0;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -1017,23 +1104,27 @@ export unsafe function b2CreateWheelJoint(worldId: b2WorldId, def: b2WheelJointD
 
 	let id = b2CreateJoint(world, def.base, b2_wheelJoint);
 	let view = b2GetJointSimView(world, id);
-	ref joint = view[world.joints[id].localIndex];
+	let jointAddress = b2JointSimAddress(view, world.joints[id].localIndex);
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
+	let jointWheelView = b2WheelJointAt(jointAddress);
+	ref jointWheel = unchecked(jointWheelView[0]);
 
-	joint.wheelJoint = b2WheelJoint();
-	joint.wheelJoint.perpMass = 0.0;
-	joint.wheelJoint.axialMass = 0.0;
-	joint.wheelJoint.motorImpulse = 0.0;
-	joint.wheelJoint.lowerImpulse = 0.0;
-	joint.wheelJoint.upperImpulse = 0.0;
-	joint.wheelJoint.lowerTranslation = b2MinFloat(def.lowerTranslation, def.upperTranslation);
-	joint.wheelJoint.upperTranslation = b2MaxFloat(def.lowerTranslation, def.upperTranslation);
-	joint.wheelJoint.maxMotorTorque = def.maxMotorTorque;
-	joint.wheelJoint.motorSpeed = def.motorSpeed;
-	joint.wheelJoint.hertz = def.hertz;
-	joint.wheelJoint.dampingRatio = def.dampingRatio;
-	joint.wheelJoint.enableSpring = def.enableSpring;
-	joint.wheelJoint.enableLimit = def.enableLimit;
-	joint.wheelJoint.enableMotor = def.enableMotor;
+	jointWheel = b2WheelJoint();
+	jointWheel.perpMass = 0.0;
+	jointWheel.axialMass = 0.0;
+	jointWheel.motorImpulse = 0.0;
+	jointWheel.lowerImpulse = 0.0;
+	jointWheel.upperImpulse = 0.0;
+	jointWheel.lowerTranslation = b2MinFloat(def.lowerTranslation, def.upperTranslation);
+	jointWheel.upperTranslation = b2MaxFloat(def.lowerTranslation, def.upperTranslation);
+	jointWheel.maxMotorTorque = def.maxMotorTorque;
+	jointWheel.motorSpeed = def.motorSpeed;
+	jointWheel.hertz = def.hertz;
+	jointWheel.dampingRatio = def.dampingRatio;
+	jointWheel.enableSpring = def.enableSpring;
+	jointWheel.enableLimit = def.enableLimit;
+	jointWheel.enableMotor = def.enableMotor;
 
 	return b2MakeJointId(world, joint.jointId);
 }
@@ -1264,36 +1355,45 @@ export function b2Joint_WakeBodies(jointId: b2JointId): void {
 	b2WakeBody(world, bodyB);
 }
 
-export function b2GetJointReaction(sim: ref b2JointSim, invTimeStep: f32, force: ref f32, torque: ref f32): void {
+export function b2GetJointReaction(simAddress: usize, invTimeStep: f32, force: ref f32, torque: ref f32): void {
+	let simView = b2JointSimAt(simAddress);
+	ref sim = unchecked(simView[0]);
+	let simMoverView = b2MoverJointAt(simAddress);
+	ref simMover = unchecked(simMoverView[0]);
+	let simPogoView = b2PogoJointAt(simAddress);
+	ref simPogo = unchecked(simPogoView[0]);
 	let linearImpulse: f32 = 0.0;
 	let angularImpulse: f32 = 0.0;
 
 	switch (sim.type) {
 		case b2_distanceJoint: {
-			ref joint = sim.distanceJoint;
+			let jointView = b2DistanceJointAt(simAddress);
+			ref joint = unchecked(jointView[0]);
 			linearImpulse = b2AbsFloat(joint.impulse + joint.lowerImpulse - joint.upperImpulse + joint.motorImpulse);
 			break;
 		}
 
 		case b2_motorJoint: {
-			ref joint = sim.motorJoint;
+			let jointView = b2MotorJointAt(simAddress);
+			ref joint = unchecked(jointView[0]);
 			linearImpulse = b2Length(b2Add(joint.linearVelocityImpulse, joint.linearSpringImpulse));
 			angularImpulse = b2AbsFloat(joint.angularVelocityImpulse + joint.angularSpringImpulse);
 			break;
 		}
 
 		case b2_moverJoint: {
-			linearImpulse = b2Length(sim.moverJoint.linearVelocityImpulse);
+			linearImpulse = b2Length(simMover.linearVelocityImpulse);
 			break;
 		}
 
 		case b2_pogoJoint: {
-			linearImpulse = b2AbsFloat(sim.pogoJoint.impulse);
+			linearImpulse = b2AbsFloat(simPogo.impulse);
 			break;
 		}
 
 		case b2_prismaticJoint: {
-			ref joint = sim.prismaticJoint;
+			let jointView = b2PrismaticJointAt(simAddress);
+			ref joint = unchecked(jointView[0]);
 			let perpImpulse: f32 = joint.impulse.x;
 			let axialImpulse: f32 = joint.motorImpulse + joint.lowerImpulse - joint.upperImpulse;
 			linearImpulse = Mathf.sqrt(perpImpulse * perpImpulse + axialImpulse * axialImpulse);
@@ -1302,7 +1402,8 @@ export function b2GetJointReaction(sim: ref b2JointSim, invTimeStep: f32, force:
 		}
 
 		case b2_revoluteJoint: {
-			ref joint = sim.revoluteJoint;
+			let jointView = b2RevoluteJointAt(simAddress);
+			ref joint = unchecked(jointView[0]);
 
 			linearImpulse = b2Length(joint.linearImpulse);
 			angularImpulse = b2AbsFloat(joint.motorImpulse + joint.lowerImpulse - joint.upperImpulse);
@@ -1310,14 +1411,16 @@ export function b2GetJointReaction(sim: ref b2JointSim, invTimeStep: f32, force:
 		}
 
 		case b2_weldJoint: {
-			ref joint = sim.weldJoint;
+			let jointView = b2WeldJointAt(simAddress);
+			ref joint = unchecked(jointView[0]);
 			linearImpulse = b2Length(joint.linearImpulse);
 			angularImpulse = b2AbsFloat(joint.angularImpulse);
 			break;
 		}
 
 		case b2_wheelJoint: {
-			ref joint = sim.wheelJoint;
+			let jointView = b2WheelJointAt(simAddress);
+			ref joint = unchecked(jointView[0]);
 			let perpImpulse: f32 = joint.perpImpulse;
 			let axialImpulse: f32 = joint.springImpulse + joint.lowerImpulse - joint.upperImpulse;
 			linearImpulse = Mathf.sqrt(perpImpulse * perpImpulse + axialImpulse * axialImpulse);
@@ -1335,35 +1438,37 @@ export function b2GetJointReaction(sim: ref b2JointSim, invTimeStep: f32, force:
 
 unsafe function b2GetJointConstraintForce(world: b2World, joint: i32): b2Vec2 {
 	let view = b2GetJointSimView(world, joint);
-	ref base = view[world.joints[joint].localIndex];
+	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 
 	switch (world.joints[joint].type) {
 		case b2_distanceJoint:
-			return b2GetDistanceJointForce(world, base);
+			return b2GetDistanceJointForce(world, baseAddress);
 
 		case b2_motorJoint:
-			return b2GetMotorJointForce(world, base);
+			return b2GetMotorJointForce(world, baseAddress);
 
 		case b2_moverJoint:
-			return b2GetMoverJointForce(world, base);
+			return b2GetMoverJointForce(world, baseAddress);
 
 		case b2_filterJoint:
 			return b2Vec2_zero;
 
 		case b2_pogoJoint:
-			return b2GetPogoJointForce(world, base);
+			return b2GetPogoJointForce(world, baseAddress);
 
 		case b2_prismaticJoint:
-			return b2GetPrismaticJointForce(world, base);
+			return b2GetPrismaticJointForce(world, baseAddress);
 
 		case b2_revoluteJoint:
-			return b2GetRevoluteJointForce(world, base);
+			return b2GetRevoluteJointForce(world, baseAddress);
 
 		case b2_weldJoint:
-			return b2GetWeldJointForce(world, base);
+			return b2GetWeldJointForce(world, baseAddress);
 
 		case b2_wheelJoint:
-			return b2GetWheelJointForce(world, base);
+			return b2GetWheelJointForce(world, baseAddress);
 
 		default:
 			B2_ASSERT(false);
@@ -1373,29 +1478,31 @@ unsafe function b2GetJointConstraintForce(world: b2World, joint: i32): b2Vec2 {
 
 unsafe function b2GetJointConstraintTorque(world: b2World, joint: i32): f32 {
 	let view = b2GetJointSimView(world, joint);
-	ref base = view[world.joints[joint].localIndex];
+	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 
 	switch (world.joints[joint].type) {
 		case b2_distanceJoint:
 			return 0.0;
 
 		case b2_motorJoint:
-			return b2GetMotorJointTorque(world, base);
+			return b2GetMotorJointTorque(world, baseAddress);
 
 		case b2_filterJoint:
 			return 0.0;
 
 		case b2_prismaticJoint:
-			return b2GetPrismaticJointTorque(world, base);
+			return b2GetPrismaticJointTorque(world, baseAddress);
 
 		case b2_revoluteJoint:
-			return b2GetRevoluteJointTorque(world, base);
+			return b2GetRevoluteJointTorque(world, baseAddress);
 
 		case b2_weldJoint:
-			return b2GetWeldJointTorque(world, base);
+			return b2GetWeldJointTorque(world, baseAddress);
 
 		case b2_wheelJoint:
-			return b2GetWheelJointTorque(world, base);
+			return b2GetWheelJointTorque(world, baseAddress);
 
 		default:
 			B2_ASSERT(false);
@@ -1419,7 +1526,11 @@ export unsafe function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
-	ref base = view[world.joints[joint].localIndex];
+	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
+	let baseWeldView = b2WeldJointAt(baseAddress);
+	ref baseWeld = unchecked(baseWeldView[0]);
 
 	// Relative to body A so the difference stays in float precision far from the origin
 	let wxfA = b2GetBodyTransform(world, world.joints[joint].edges[0].bodyId);
@@ -1432,7 +1543,8 @@ export unsafe function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
 
 	switch (world.joints[joint].type) {
 		case b2_distanceJoint: {
-			ref distanceJoint = base.distanceJoint;
+			let distanceJointView = b2DistanceJointAt(baseAddress);
+			ref distanceJoint = unchecked(distanceJointView[0]);
 			let length: f32 = b2Length(dp);
 			if (distanceJoint.enableSpring) {
 				if (distanceJoint.enableLimit) {
@@ -1460,7 +1572,8 @@ export unsafe function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
 			return 0.0;
 
 		case b2_prismaticJoint: {
-			ref prismaticJoint = base.prismaticJoint;
+			let prismaticJointView = b2PrismaticJointAt(baseAddress);
+			ref prismaticJoint = unchecked(prismaticJointView[0]);
 			let axisA = b2RotateVector(xfA.q, b2Vec2(1.0, 0.0));
 			let perpA = b2LeftPerp(axisA);
 			let perpendicularSeparation: f32 = b2AbsFloat(b2Dot(perpA, dp));
@@ -1484,7 +1597,7 @@ export unsafe function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
 			return b2Length(dp);
 
 		case b2_weldJoint: {
-			if (base.weldJoint.linearHertz == 0.0) {
+			if (baseWeld.linearHertz == 0.0) {
 				return b2Length(dp);
 			}
 
@@ -1492,7 +1605,8 @@ export unsafe function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
 		}
 
 		case b2_wheelJoint: {
-			ref wheelJoint = base.wheelJoint;
+			let wheelJointView = b2WheelJointAt(baseAddress);
+			ref wheelJoint = unchecked(wheelJointView[0]);
 			let axisA = b2RotateVector(xfA.q, b2Vec2(1.0, 0.0));
 			let perpA = b2LeftPerp(axisA);
 			let perpendicularSeparation: f32 = b2AbsFloat(b2Dot(perpA, dp));
@@ -1522,7 +1636,11 @@ export unsafe function b2Joint_GetAngularSeparation(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
-	ref base = view[world.joints[joint].localIndex];
+	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
+	let baseWeldView = b2WeldJointAt(baseAddress);
+	ref baseWeld = unchecked(baseWeldView[0]);
 
 	let qA = b2GetBodyTransform(world, world.joints[joint].edges[0].bodyId).q;
 	let qB = b2GetBodyTransform(world, world.joints[joint].edges[1].bodyId).q;
@@ -1543,7 +1661,8 @@ export unsafe function b2Joint_GetAngularSeparation(jointId: b2JointId): f32 {
 		}
 
 		case b2_revoluteJoint: {
-			ref revoluteJoint = base.revoluteJoint;
+			let revoluteJointView = b2RevoluteJointAt(baseAddress);
+			ref revoluteJoint = unchecked(revoluteJointView[0]);
 			if (revoluteJoint.enableLimit) {
 				let angle: f32 = relativeAngle;
 				if (angle < revoluteJoint.lowerAngle) {
@@ -1559,7 +1678,7 @@ export unsafe function b2Joint_GetAngularSeparation(jointId: b2JointId): f32 {
 		}
 
 		case b2_weldJoint: {
-			if (base.weldJoint.angularHertz == 0.0) {
+			if (baseWeld.angularHertz == 0.0) {
 				return relativeAngle;
 			}
 
@@ -1583,7 +1702,9 @@ export unsafe function b2Joint_SetConstraintTuning(jointId: b2JointId, hertz: f3
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
-	ref base = view[world.joints[joint].localIndex];
+	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	base.constraintHertz = hertz;
 	base.constraintDampingRatio = dampingRatio;
 }
@@ -1592,7 +1713,9 @@ export unsafe function b2Joint_GetConstraintTuning(jointId: b2JointId, hertz: re
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
-	ref base = view[world.joints[joint].localIndex];
+	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	hertz = base.constraintHertz;
 	dampingRatio = base.constraintDampingRatio;
 }
@@ -1633,45 +1756,47 @@ export unsafe function b2Joint_GetTorqueThreshold(jointId: b2JointId): f32 {
 	return view[world.joints[joint].localIndex].torqueThreshold;
 }
 
-export unsafe function b2PrepareJoint(joint: ref b2JointSim, context: b2StepContext): void {
+export unsafe function b2PrepareJoint(jointAddress: usize, context: b2StepContext): void {
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
 	// Clamp joint hertz based on the time step to reduce jitter.
 	let hertz: f32 = b2MinFloat(joint.constraintHertz, 0.25 * context.inv_h);
 	joint.constraintSoftness = b2MakeSoft(hertz, joint.constraintDampingRatio, context.h);
 
 	switch (joint.type) {
 		case b2_distanceJoint:
-			b2PrepareDistanceJoint(joint, context);
+			b2PrepareDistanceJoint(jointAddress, context);
 			break;
 
 		case b2_motorJoint:
-			b2PrepareMotorJoint(joint, context);
+			b2PrepareMotorJoint(jointAddress, context);
 			break;
 
 		case b2_moverJoint:
-			b2PrepareMoverJoint(joint, context);
+			b2PrepareMoverJoint(jointAddress, context);
 			break;
 
 		case b2_filterJoint:
 			break;
 
 		case b2_pogoJoint:
-			b2PreparePogoJoint(joint, context);
+			b2PreparePogoJoint(jointAddress, context);
 			break;
 
 		case b2_prismaticJoint:
-			b2PreparePrismaticJoint(joint, context);
+			b2PreparePrismaticJoint(jointAddress, context);
 			break;
 
 		case b2_revoluteJoint:
-			b2PrepareRevoluteJoint(joint, context);
+			b2PrepareRevoluteJoint(jointAddress, context);
 			break;
 
 		case b2_weldJoint:
-			b2PrepareWeldJoint(joint, context);
+			b2PrepareWeldJoint(jointAddress, context);
 			break;
 
 		case b2_wheelJoint:
-			b2PrepareWheelJoint(joint, context);
+			b2PrepareWheelJoint(jointAddress, context);
 			break;
 
 		default:
@@ -1679,41 +1804,43 @@ export unsafe function b2PrepareJoint(joint: ref b2JointSim, context: b2StepCont
 	}
 }
 
-export unsafe function b2WarmStartJoint(joint: ref b2JointSim, context: b2StepContext): void {
+export unsafe function b2WarmStartJoint(jointAddress: usize, context: b2StepContext): void {
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
 	switch (joint.type) {
 		case b2_distanceJoint:
-			b2WarmStartDistanceJoint(joint, context);
+			b2WarmStartDistanceJoint(jointAddress, context);
 			break;
 
 		case b2_motorJoint:
-			b2WarmStartMotorJoint(joint, context);
+			b2WarmStartMotorJoint(jointAddress, context);
 			break;
 
 		case b2_moverJoint:
-			b2WarmStartMoverJoint(joint, context);
+			b2WarmStartMoverJoint(jointAddress, context);
 			break;
 
 		case b2_filterJoint:
 			break;
 
 		case b2_pogoJoint:
-			b2WarmStartPogoJoint(joint, context);
+			b2WarmStartPogoJoint(jointAddress, context);
 			break;
 
 		case b2_prismaticJoint:
-			b2WarmStartPrismaticJoint(joint, context);
+			b2WarmStartPrismaticJoint(jointAddress, context);
 			break;
 
 		case b2_revoluteJoint:
-			b2WarmStartRevoluteJoint(joint, context);
+			b2WarmStartRevoluteJoint(jointAddress, context);
 			break;
 
 		case b2_weldJoint:
-			b2WarmStartWeldJoint(joint, context);
+			b2WarmStartWeldJoint(jointAddress, context);
 			break;
 
 		case b2_wheelJoint:
-			b2WarmStartWheelJoint(joint, context);
+			b2WarmStartWheelJoint(jointAddress, context);
 			break;
 
 		default:
@@ -1721,41 +1848,43 @@ export unsafe function b2WarmStartJoint(joint: ref b2JointSim, context: b2StepCo
 	}
 }
 
-export unsafe function b2SolveJoint(joint: ref b2JointSim, context: b2StepContext, useBias: bool): void {
+export unsafe function b2SolveJoint(jointAddress: usize, context: b2StepContext, useBias: bool): void {
+	let jointView = b2JointSimAt(jointAddress);
+	ref joint = unchecked(jointView[0]);
 	switch (joint.type) {
 		case b2_distanceJoint:
-			b2SolveDistanceJoint(joint, context, useBias);
+			b2SolveDistanceJoint(jointAddress, context, useBias);
 			break;
 
 		case b2_motorJoint:
-			b2SolveMotorJoint(joint, context);
+			b2SolveMotorJoint(jointAddress, context);
 			break;
 
 		case b2_moverJoint:
-			b2SolveMoverJoint(joint, context);
+			b2SolveMoverJoint(jointAddress, context);
 			break;
 
 		case b2_filterJoint:
 			break;
 
 		case b2_pogoJoint:
-			b2SolvePogoJoint(joint, context, useBias);
+			b2SolvePogoJoint(jointAddress, context, useBias);
 			break;
 
 		case b2_prismaticJoint:
-			b2SolvePrismaticJoint(joint, context, useBias);
+			b2SolvePrismaticJoint(jointAddress, context, useBias);
 			break;
 
 		case b2_revoluteJoint:
-			b2SolveRevoluteJoint(joint, context, useBias);
+			b2SolveRevoluteJoint(jointAddress, context, useBias);
 			break;
 
 		case b2_weldJoint:
-			b2SolveWeldJoint(joint, context, useBias);
+			b2SolveWeldJoint(jointAddress, context, useBias);
 			break;
 
 		case b2_wheelJoint:
-			b2SolveWheelJoint(joint, context, useBias);
+			b2SolveWheelJoint(jointAddress, context, useBias);
 			break;
 
 		default:
@@ -1770,7 +1899,7 @@ export unsafe function b2PrepareJoints_Overflow(context: b2StepContext): void {
 	let jointCount = sims.length;
 
 	for (let i = 0; i < jointCount; ++i) {
-		b2PrepareJoint(joints[i], context);
+		b2PrepareJoint(b2JointSimAddress(joints, i), context);
 	}
 }
 
@@ -1781,7 +1910,7 @@ export unsafe function b2WarmStartJoints_Overflow(context: b2StepContext): void 
 	let jointCount = sims.length;
 
 	for (let i = 0; i < jointCount; ++i) {
-		b2WarmStartJoint(joints[i], context);
+		b2WarmStartJoint(b2JointSimAddress(joints, i), context);
 	}
 }
 
@@ -1792,7 +1921,7 @@ export unsafe function b2SolveJoints_Overflow(context: b2StepContext, useBias: b
 	let jointCount = sims.length;
 
 	for (let i = 0; i < jointCount; ++i) {
-		b2SolveJoint(joints[i], context, useBias);
+		b2SolveJoint(b2JointSimAddress(joints, i), context, useBias);
 	}
 }
 
@@ -1817,7 +1946,7 @@ export unsafe function b2PrepareJointsTask(block: b2SolverBlock, context: b2Step
 		// Loop over color
 		for (; index < colorEndIndex; ++index) {
 			if (B2_ASSERT_ENABLED) B2_ASSERT(0 <= index - colorStart && index - colorStart < spans[colorIndex].count);
-			b2PrepareJoint(joints[index - colorStart], context);
+			b2PrepareJoint(b2JointSimAddress(joints, index - colorStart), context);
 		}
 
 		// Advance to next color
@@ -1831,7 +1960,7 @@ export unsafe function b2WarmStartJointsTask(block: b2SolverBlock, context: b2St
 
 	let endIndex = block.startIndex + <i32>block.count;
 	for (let i = block.startIndex; i < endIndex; ++i) {
-		b2WarmStartJoint(joints[i], context);
+		b2WarmStartJoint(b2JointSimAddress(joints, i), context);
 	}
 }
 
@@ -1845,8 +1974,10 @@ export unsafe function b2SolveJointsTask(block: b2SolverBlock, context: b2StepCo
 
 	let endIndex = block.startIndex + <i32>block.count;
 	for (let i = block.startIndex; i < endIndex; ++i) {
-		ref joint = joints[i];
-		b2SolveJoint(joint, context, useBias);
+		let jointAddress = b2JointSimAddress(joints, i);
+		let jointView = b2JointSimAt(jointAddress);
+		ref joint = unchecked(jointView[0]);
+		b2SolveJoint(jointAddress, context, useBias);
 
 		if (
 			useBias &&
@@ -1855,7 +1986,7 @@ export unsafe function b2SolveJointsTask(block: b2SolverBlock, context: b2StepCo
 		) {
 			// force in x, torque in y: ref needs a struct leaf
 			let reaction = b2Vec2();
-			b2GetJointReaction(joint, context.inv_h, reaction.x, reaction.y);
+			b2GetJointReaction(jointAddress, context.inv_h, reaction.x, reaction.y);
 
 			// Check thresholds. A zero threshold means all awake joints get reported.
 			if (reaction.x >= joint.forceThreshold || reaction.y >= joint.torqueThreshold) {

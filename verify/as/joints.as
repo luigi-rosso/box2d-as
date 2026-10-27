@@ -49,6 +49,7 @@ import {
 	b2CreateWheelJoint,
 	b2DestroyJoint,
 	b2GetJointReaction,
+	b2JointSimAddress,
 	b2JointSimView,
 	b2PrepareJointsTask,
 	b2PrepareJoints_Overflow,
@@ -99,7 +100,7 @@ unsafe function emitSims(tag: string): void {
 		for (let i = 0; i < sims.length; ++i) {
 			ref sim = view[i];
 			let r = b2Vec2();
-			b2GetJointReaction(sim, 60.0, r.x, r.y);
+			b2GetJointReaction(b2JointSimAddress(view, i), 60.0, r.x, r.y);
 			vtag(tag);
 			vi32(c);
 			vi32(sim.jointId);

@@ -13,45 +13,55 @@ import { b2World } from "./physics_world";
 import {
 	b2CheckJointInput,
 	b2GetJointLocalIndex,
+	b2GetJointSimAddressCheckType,
 	b2GetJointSimViewCheckType,
 	b2JointSim,
+	b2JointSimAt,
+	b2MoverJointAt,
 	b2WriteStateLinearVelocity,
 } from "./joint";
 
 export unsafe function b2MoverJoint_SetLinearVelocity(jointId: b2JointId, velocity: b2Vec2): void {
 	if (!b2CheckJointInput(b2IsValidVec2(velocity), "b2IsValidVec2( velocity )", "b2MoverJoint_SetLinearVelocity")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_moverJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.moverJoint.linearVelocity = velocity;
+	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
+	ref joint = unchecked(joints[0]);
+	joint.linearVelocity = velocity;
 }
 
 export unsafe function b2MoverJoint_GetLinearVelocity(jointId: b2JointId): b2Vec2 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_moverJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.moverJoint.linearVelocity;
+	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.linearVelocity;
 }
 
 export unsafe function b2MoverJoint_SetMaxVelocityForce(jointId: b2JointId, maxForce: b2Vec2): void {
 	if (!b2CheckJointInput(b2IsValidVec2(maxForce), "b2IsValidVec2( maxForce )", "b2MoverJoint_SetMaxVelocityForce")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_moverJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.moverJoint.maxVelocityForce = maxForce;
+	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
+	ref joint = unchecked(joints[0]);
+	joint.maxVelocityForce = maxForce;
 }
 
 export unsafe function b2MoverJoint_GetMaxVelocityForce(jointId: b2JointId): b2Vec2 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_moverJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.moverJoint.maxVelocityForce;
+	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.maxVelocityForce;
 }
 
-export function b2GetMoverJointForce(world: b2World, base: ref b2JointSim): b2Vec2 {
-	let force = b2MulSV(world.inv_h, base.moverJoint.linearVelocityImpulse);
+export function b2GetMoverJointForce(world: b2World, baseAddress: usize): b2Vec2 {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
+	let baseMoverView = b2MoverJointAt(baseAddress);
+	ref baseMover = unchecked(baseMoverView[0]);
+	let force = b2MulSV(world.inv_h, baseMover.linearVelocityImpulse);
 	return force;
 }
 
-export function b2PrepareMoverJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export function b2PrepareMoverJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_moverJoint);
 
 	let idA = base.bodyIdA;
@@ -78,7 +88,8 @@ export function b2PrepareMoverJoint(base: ref b2JointSim, context: b2StepContext
 	base.invIA = 0.0;
 	base.invIB = 0.0;
 
-	ref joint = base.moverJoint;
+	let jointView = b2MoverJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 	joint.indexA = setIndexA == b2_awakeSet ? localIndexA : B2_NULL_INDEX;
 	joint.indexB = setIndexB == b2_awakeSet ? localIndexB : B2_NULL_INDEX;
 
@@ -90,13 +101,17 @@ export function b2PrepareMoverJoint(base: ref b2JointSim, context: b2StepContext
 	}
 }
 
-export unsafe function b2WarmStartMoverJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export unsafe function b2WarmStartMoverJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_moverJoint);
 
 	let mA: f32 = base.invMassA;
 	let mB: f32 = base.invMassB;
 
-	ref joint = base.moverJoint;
+	let jointView = b2MoverJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 
 	// dummy state for static bodies
 	let addressA = b2StateAddress(context.states, joint.indexA);
@@ -113,14 +128,18 @@ export unsafe function b2WarmStartMoverJoint(base: ref b2JointSim, context: b2St
 	}
 }
 
-export unsafe function b2SolveMoverJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export unsafe function b2SolveMoverJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_moverJoint);
 
 	let mA: f32 = base.invMassA;
 	let mB: f32 = base.invMassB;
 
 	// dummy state for static bodies
-	ref joint = base.moverJoint;
+	let jointView = b2MoverJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 	let addressA = b2StateAddress(context.states, joint.indexA);
 	let addressB = b2StateAddress(context.states, joint.indexB);
 	let stateA = load<b2BodyState>(addressA);

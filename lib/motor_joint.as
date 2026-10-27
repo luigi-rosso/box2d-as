@@ -37,158 +37,169 @@ import { b2World } from "./physics_world";
 import {
 	b2CheckJointInput,
 	b2GetJointLocalIndex,
+	b2GetJointSimAddressCheckType,
 	b2GetJointSimViewCheckType,
 	b2JointSim,
+	b2JointSimAt,
+	b2MotorJointAt,
 	b2WriteStateVelocity,
 } from "./joint";
 
 export unsafe function b2MotorJoint_SetLinearVelocity(jointId: b2JointId, velocity: b2Vec2): void {
 	if (!b2CheckJointInput(b2IsValidVec2(velocity), "b2IsValidVec2( velocity )", "b2MotorJoint_SetLinearVelocity")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.linearVelocity = velocity;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.linearVelocity = velocity;
 }
 
 export unsafe function b2MotorJoint_GetLinearVelocity(jointId: b2JointId): b2Vec2 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.linearVelocity;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.linearVelocity;
 }
 
 export unsafe function b2MotorJoint_SetAngularVelocity(jointId: b2JointId, velocity: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(velocity), "b2IsValidFloat( velocity )", "b2MotorJoint_SetAngularVelocity")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.angularVelocity = velocity;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.angularVelocity = velocity;
 }
 
 export unsafe function b2MotorJoint_GetAngularVelocity(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.angularVelocity;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.angularVelocity;
 }
 
 export unsafe function b2MotorJoint_SetMaxVelocityTorque(jointId: b2JointId, maxTorque: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxTorque), "b2IsValidFloat( maxTorque )", "b2MotorJoint_SetMaxVelocityTorque")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.maxVelocityTorque = maxTorque;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.maxVelocityTorque = maxTorque;
 }
 
 export unsafe function b2MotorJoint_GetMaxVelocityTorque(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.maxVelocityTorque;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.maxVelocityTorque;
 }
 
 export unsafe function b2MotorJoint_SetMaxVelocityForce(jointId: b2JointId, maxForce: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxForce), "b2IsValidFloat( maxForce )", "b2MotorJoint_SetMaxVelocityForce")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.maxVelocityForce = maxForce;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.maxVelocityForce = maxForce;
 }
 
 export unsafe function b2MotorJoint_GetMaxVelocityForce(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.maxVelocityForce;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.maxVelocityForce;
 }
 
 export unsafe function b2MotorJoint_SetLinearHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2MotorJoint_SetLinearHertz")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.linearHertz = hertz;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.linearHertz = hertz;
 }
 
 export unsafe function b2MotorJoint_GetLinearHertz(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.linearHertz;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.linearHertz;
 }
 
 export unsafe function b2MotorJoint_SetLinearDampingRatio(jointId: b2JointId, damping: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(damping), "b2IsValidFloat( damping )", "b2MotorJoint_SetLinearDampingRatio")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.linearDampingRatio = damping;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.linearDampingRatio = damping;
 }
 
 export unsafe function b2MotorJoint_GetLinearDampingRatio(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.linearDampingRatio;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.linearDampingRatio;
 }
 
 export unsafe function b2MotorJoint_SetAngularHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2MotorJoint_SetAngularHertz")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.angularHertz = hertz;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.angularHertz = hertz;
 }
 
 export unsafe function b2MotorJoint_GetAngularHertz(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.angularHertz;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.angularHertz;
 }
 
 export unsafe function b2MotorJoint_SetAngularDampingRatio(jointId: b2JointId, damping: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(damping), "b2IsValidFloat( damping )", "b2MotorJoint_SetAngularDampingRatio")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.angularDampingRatio = damping;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.angularDampingRatio = damping;
 }
 
 export unsafe function b2MotorJoint_GetAngularDampingRatio(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.angularDampingRatio;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.angularDampingRatio;
 }
 
 export unsafe function b2MotorJoint_SetMaxSpringForce(jointId: b2JointId, maxForce: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxForce), "b2IsValidFloat( maxForce )", "b2MotorJoint_SetMaxSpringForce")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.maxSpringForce = b2MaxFloat(0.0, maxForce);
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.maxSpringForce = b2MaxFloat(0.0, maxForce);
 }
 
 export unsafe function b2MotorJoint_GetMaxSpringForce(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.maxSpringForce;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.maxSpringForce;
 }
 
 export unsafe function b2MotorJoint_SetMaxSpringTorque(jointId: b2JointId, maxTorque: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxTorque), "b2IsValidFloat( maxTorque )", "b2MotorJoint_SetMaxSpringTorque")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.motorJoint.maxSpringTorque = b2MaxFloat(0.0, maxTorque);
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	joint.maxSpringTorque = b2MaxFloat(0.0, maxTorque);
 }
 
 export unsafe function b2MotorJoint_GetMaxSpringTorque(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_motorJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.motorJoint.maxSpringTorque;
+	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.maxSpringTorque;
 }
 
-export function b2GetMotorJointForce(world: b2World, base: ref b2JointSim): b2Vec2 {
-	let force = b2MulSV(world.inv_h, b2Add(base.motorJoint.linearVelocityImpulse, base.motorJoint.linearSpringImpulse));
+export function b2GetMotorJointForce(world: b2World, baseAddress: usize): b2Vec2 {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
+	let baseMotorView = b2MotorJointAt(baseAddress);
+	ref baseMotor = unchecked(baseMotorView[0]);
+	let force = b2MulSV(world.inv_h, b2Add(baseMotor.linearVelocityImpulse, baseMotor.linearSpringImpulse));
 	return force;
 }
 
-export function b2GetMotorJointTorque(world: b2World, base: ref b2JointSim): f32 {
-	return world.inv_h * (base.motorJoint.angularVelocityImpulse + base.motorJoint.angularSpringImpulse);
+export function b2GetMotorJointTorque(world: b2World, baseAddress: usize): f32 {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
+	let baseMotorView = b2MotorJointAt(baseAddress);
+	ref baseMotor = unchecked(baseMotorView[0]);
+	return world.inv_h * (baseMotor.angularVelocityImpulse + baseMotor.angularSpringImpulse);
 }
 
 // Point-to-point constraint
@@ -205,7 +216,10 @@ export function b2GetMotorJointTorque(world: b2World, base: ref b2JointSim): f32
 // J = [0 0 -1 0 0 1]
 // K = invI1 + invI2
 
-export function b2PrepareMotorJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export function b2PrepareMotorJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_motorJoint);
 
 	// chase body id to the solver set where the body lives
@@ -240,7 +254,8 @@ export function b2PrepareMotorJoint(base: ref b2JointSim, context: b2StepContext
 	base.invIA = iA;
 	base.invIB = iB;
 
-	ref joint = base.motorJoint;
+	let jointView = b2MotorJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 	joint.indexA = setIndexA == b2_awakeSet ? localIndexA : B2_NULL_INDEX;
 	joint.indexB = setIndexB == b2_awakeSet ? localIndexB : B2_NULL_INDEX;
 
@@ -277,7 +292,10 @@ export function b2PrepareMotorJoint(base: ref b2JointSim, context: b2StepContext
 	}
 }
 
-export unsafe function b2WarmStartMotorJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export unsafe function b2WarmStartMotorJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_motorJoint);
 
 	let mA: f32 = base.invMassA;
@@ -285,7 +303,8 @@ export unsafe function b2WarmStartMotorJoint(base: ref b2JointSim, context: b2St
 	let iA: f32 = base.invIA;
 	let iB: f32 = base.invIB;
 
-	ref joint = base.motorJoint;
+	let jointView = b2MotorJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 
 	// dummy state for static bodies
 	let addressA = b2StateAddress(context.states, joint.indexA);
@@ -316,7 +335,10 @@ export unsafe function b2WarmStartMotorJoint(base: ref b2JointSim, context: b2St
 	}
 }
 
-export unsafe function b2SolveMotorJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export unsafe function b2SolveMotorJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_motorJoint);
 
 	let mA: f32 = base.invMassA;
@@ -325,7 +347,8 @@ export unsafe function b2SolveMotorJoint(base: ref b2JointSim, context: b2StepCo
 	let iB: f32 = base.invIB;
 
 	// dummy state for static bodies
-	ref joint = base.motorJoint;
+	let jointView = b2MotorJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 	let addressA = b2StateAddress(context.states, joint.indexA);
 	let addressB = b2StateAddress(context.states, joint.indexB);
 	let stateA = load<b2BodyState>(addressA);

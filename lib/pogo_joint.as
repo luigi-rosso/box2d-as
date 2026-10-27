@@ -31,8 +31,11 @@ import { b2GetWorld, b2World } from "./physics_world";
 import {
 	b2CheckJointInput,
 	b2GetJointLocalIndex,
+	b2GetJointSimAddressCheckType,
 	b2GetJointSimViewCheckType,
 	b2JointSim,
+	b2JointSimAt,
+	b2PogoJointAt,
 	b2WriteStateVelocity,
 } from "./joint";
 
@@ -41,29 +44,29 @@ const b2_pogoAxis: b2Vec2 = b2Vec2(0.0, 1.0);
 export unsafe function b2PogoJoint_SetRestLength(jointId: b2JointId, length: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(length), "b2IsValidFloat( length )", "b2PogoJoint_SetRestLength")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.pogoJoint.restLength = length;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	joint.restLength = length;
 }
 
 export unsafe function b2PogoJoint_GetRestLength(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.pogoJoint.restLength;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.restLength;
 }
 
 export unsafe function b2PogoJoint_GetSpringHertz(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.pogoJoint.hertz;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.hertz;
 }
 
 export unsafe function b2PogoJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2PogoJoint_SetSpringHertz")) return;
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.pogoJoint.hertz = hertz;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	joint.hertz = hertz;
 }
 
 export unsafe function b2PogoJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
@@ -71,15 +74,15 @@ export unsafe function b2PogoJoint_SetSpringDampingRatio(jointId: b2JointId, dam
 		return;
 	}
 
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	joint.pogoJoint.dampingRatio = dampingRatio;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	joint.dampingRatio = dampingRatio;
 }
 
 export unsafe function b2PogoJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.pogoJoint.dampingRatio;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.dampingRatio;
 }
 
 export unsafe function b2PogoJoint_GetCurrentLength(jointId: b2JointId): f32 {
@@ -102,23 +105,30 @@ export unsafe function b2PogoJoint_GetCurrentLength(jointId: b2JointId): f32 {
 }
 
 export unsafe function b2PogoJoint_GetImpulse(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.pogoJoint.impulse;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.impulse;
 }
 
 export unsafe function b2PogoJoint_GetCurrentSpeed(jointId: b2JointId): f32 {
-	let sims = b2GetJointSimViewCheckType(jointId, b2_pogoJoint);
-	ref joint = sims[b2GetJointLocalIndex(jointId)];
-	return joint.pogoJoint.velocity;
+	let joints = b2PogoJointAt(b2GetJointSimAddressCheckType(jointId, b2_pogoJoint));
+	ref joint = unchecked(joints[0]);
+	return joint.velocity;
 }
 
-export function b2GetPogoJointForce(world: b2World, base: ref b2JointSim): b2Vec2 {
-	let force = b2MulSV(world.inv_h * base.pogoJoint.impulse, base.pogoJoint.normal);
+export function b2GetPogoJointForce(world: b2World, baseAddress: usize): b2Vec2 {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
+	let basePogoView = b2PogoJointAt(baseAddress);
+	ref basePogo = unchecked(basePogoView[0]);
+	let force = b2MulSV(world.inv_h * basePogo.impulse, basePogo.normal);
 	return force;
 }
 
-export function b2PreparePogoJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export function b2PreparePogoJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_pogoJoint);
 
 	let world = context.world;
@@ -153,7 +163,8 @@ export function b2PreparePogoJoint(base: ref b2JointSim, context: b2StepContext)
 	base.invIA = iA;
 	base.invIB = iB;
 
-	ref joint = base.pogoJoint;
+	let jointView = b2PogoJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 	joint.indexA = setIndexA == b2_awakeSet ? localIndexA : B2_NULL_INDEX;
 	joint.indexB = setIndexB == b2_awakeSet ? localIndexB : B2_NULL_INDEX;
 
@@ -180,7 +191,10 @@ export function b2PreparePogoJoint(base: ref b2JointSim, context: b2StepContext)
 	}
 }
 
-export unsafe function b2WarmStartPogoJoint(base: ref b2JointSim, context: b2StepContext): void {
+@noinline
+export unsafe function b2WarmStartPogoJoint(baseAddress: usize, context: b2StepContext): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_pogoJoint);
 
 	let mA: f32 = base.invMassA;
@@ -188,7 +202,8 @@ export unsafe function b2WarmStartPogoJoint(base: ref b2JointSim, context: b2Ste
 	let iA: f32 = base.invIA;
 	let iB: f32 = base.invIB;
 
-	ref joint = base.pogoJoint;
+	let jointView = b2PogoJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 
 	if (joint.hertz == 0.0) {
 		joint.impulse = 0.0;
@@ -222,7 +237,10 @@ export unsafe function b2WarmStartPogoJoint(base: ref b2JointSim, context: b2Ste
 	}
 }
 
-export unsafe function b2SolvePogoJoint(base: ref b2JointSim, context: b2StepContext, useBias: bool): void {
+@noinline
+export unsafe function b2SolvePogoJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
+	let baseView = b2JointSimAt(baseAddress);
+	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_pogoJoint);
 
 	let mA: f32 = base.invMassA;
@@ -231,7 +249,8 @@ export unsafe function b2SolvePogoJoint(base: ref b2JointSim, context: b2StepCon
 	let iB: f32 = base.invIB;
 
 	// dummy state for static bodies
-	ref joint = base.pogoJoint;
+	let jointView = b2PogoJointAt(baseAddress);
+	ref joint = unchecked(jointView[0]);
 	if (joint.hertz == 0.0) {
 		joint.impulse = 0.0;
 		return;
