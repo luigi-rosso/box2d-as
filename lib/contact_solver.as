@@ -1218,6 +1218,7 @@ const b2_zeroContactSims = new StaticArray<b2ContactSim>(1);
 // Prepare wide contact constraints.
 // Potential optimization: for SSE2 load 4 manifold points and transpose, like the body gather/scatter.
 // I would need to reorder the manifold point so that constraint data comes first.
+@noinline
 unsafe function b2PrepareContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let world = context.world;
 	let states = b2ArrayData(context.states);
@@ -1304,6 +1305,7 @@ unsafe function b2PrepareContactsL<T>(block: b2SolverBlock, context: b2StepConte
 	}
 }
 
+@noinline
 unsafe function b2WarmStartContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
@@ -1428,6 +1430,7 @@ unsafe function b2WarmStartContactsL<T>(block: b2SolverBlock, context: b2StepCon
 	return b2AddL(b2DotL(normalX, normalY, dsX, dsY), b2LoadL<T>(c + baseSeparation));
 }
 
+@noinline
 unsafe function b2PushContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
@@ -1572,6 +1575,7 @@ unsafe function b2PushContactsL<T>(block: b2SolverBlock, context: b2StepContext)
 }
 
 // Solve the normal constraint, friction, and rolling resistance.
+@noinline
 unsafe function b2SolveContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
@@ -1811,6 +1815,7 @@ unsafe function b2SolveContactsL<T>(block: b2SolverBlock, context: b2StepContext
 	return impulse;
 }
 
+@noinline
 unsafe function b2ApplyRestitutionL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
@@ -1969,6 +1974,7 @@ unsafe function b2ApplyRestitutionL<T>(block: b2SolverBlock, context: b2StepCont
 //
 // I could store the manifold pointer in the b2ContactConstraintWide to simplify
 // this. But it is important to keep the constraint small.
+@noinline
 export unsafe function b2StoreImpulses_WideW4(block: b2SolverBlock, context: b2StepContext, workerIndex: i32): void {
 	let world = context.world;
 	let spans = context.contactPrepareSpans;

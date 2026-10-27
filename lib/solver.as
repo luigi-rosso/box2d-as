@@ -393,6 +393,7 @@ const ME_BODYID = offsetof<b2BodyMoveEvent>("bodyId");
 const ME_FELLASLEEP = offsetof<b2BodyMoveEvent>("fellAsleep");
 
 // Integrate velocities and apply damping
+@noinline
 unsafe function b2IntegrateVelocitiesTask(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let sims = b2ArrayData(context.sims);
@@ -435,6 +436,7 @@ unsafe function b2IntegrateVelocitiesTask(block: b2SolverBlock, context: b2StepC
 	}
 }
 
+@noinline
 unsafe function b2IntegratePositionsTask(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let h = context.h;
