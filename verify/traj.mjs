@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Erin Catto
 // SPDX-License-Identifier: MIT
-// Runs verify/scenes/traj.as for one scene, writes a version 1 trajectory (format in
+// Runs verify/scenes/traj.as for one scene, writes a version 2 trajectory (format in
 // verify/scenes/traj.c) and diffs it against the native scalar recording.
 //   node verify/traj.mjs <scene> [--steps=N] [--wasm=path] [--out=path] [--ref=path]
 // Steps default to the reference's step count. Prints one RESULT line:
@@ -12,7 +12,10 @@ import { loadWasm, verifyDir } from './lib.mjs';
 import { readTrajectory, diff } from './scenes/dump.mjs';
 
 // The order of s_sceneNames in verify/scenes/scenes.c and scenes.as
-export const sceneNames = [ 'pyramid' ];
+export const sceneNames = [
+	'pyramid', 'shape_rain', 'chain_car', 'joints', 'dynamic_mover', 'churn',
+	'bullets', 'sensors', 'events', 'queries', 'mover', 'many_bodies',
+];
 
 const args = process.argv.slice( 2 );
 const flags = Object.fromEntries( args.filter( ( a ) => a.startsWith( '--' ) ).map( ( a ) =>
@@ -48,7 +51,7 @@ frameBoundary();
 const header = new Uint32Array( 16 );
 const headerF32 = new Float32Array( header.buffer );
 header[0] = 0x52543242;
-header[1] = 1;
+header[1] = 2;
 const nameBytes = Buffer.alloc( 32 );
 nameBytes.write( scene.slice( 0, 31 ) );
 for ( let i = 0; i < 8; ++i )
@@ -127,6 +130,11 @@ function report()
 	if ( result.firstBody )
 	{
 		consider( result.firstBody.step, `body ${result.firstBody.body} ${result.firstBody.field}` );
+	}
+	if ( result.firstProbe )
+	{
+		const p = result.firstProbe;
+		consider( p.step, `probe ${p.index} c ${p.a} as ${p.b}` );
 	}
 
 	const pass = result.identical && trapped === null && stepsRun === stepCount;

@@ -15,14 +15,34 @@ wasm=${WASM:-$out/as/traj.wasm}
 
 scenes=("$@")
 if [ ${#scenes[@]} -eq 0 ]; then
-	scenes=(pyramid)
+	scenes=(pyramid shape_rain chain_car joints dynamic_mover churn bullets sensors events queries mover many_bodies)
 fi
+
+# Steps each scene records; long enough for its script to finish and its bodies to settle
+steps_for() {
+	case "$1" in
+		pyramid) echo 300 ;;
+		shape_rain) echo 1000 ;;
+		chain_car) echo 720 ;;
+		joints) echo 500 ;;
+		dynamic_mover) echo 900 ;;
+		churn) echo 800 ;;
+		bullets) echo 400 ;;
+		sensors) echo 600 ;;
+		events) echo 600 ;;
+		queries) echo 300 ;;
+		mover) echo 900 ;;
+		many_bodies) echo 100 ;;
+		*) echo 300 ;;
+	esac
+}
 
 if [ "${NATIVE:-0}" = "1" ]; then
 	"$here/scenes/build.sh" || exit 2
 	for s in "${scenes[@]}"; do
-		steps=300
+		steps=$(steps_for "$s")
 		"$here/scenes/bin/traj_scalar" "$s" $steps 1 "$out/${s}_scalar_w1.bin" > /dev/null || exit 2
+		"$here/scenes/bin/traj_simd" "$s" $steps 1 "$out/${s}_simd_w1.bin" > /dev/null || exit 2
 	done
 fi
 

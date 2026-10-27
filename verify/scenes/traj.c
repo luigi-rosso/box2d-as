@@ -5,7 +5,7 @@
 // File format, little endian, every field 4 bytes (floats as raw IEEE 754 bit patterns):
 //
 // header, 16 words
-//   0 magic 'B2TR' (0x52543242)   1 version (1)        2..9 scene name, 32 bytes, zero padded
+//   0 magic 'B2TR' (0x52543242)   1 version (2)        2..9 scene name, 32 bytes, zero padded
 //   10 step count                 11 worker count       12 time step (f32)   13 sub-step count
 //   14 counter count C            15 reserved (0)
 //
@@ -16,6 +16,7 @@
 //   N bodies in creation order, 11 words each:
 //     body index, flags (bit 0 valid, bit 1 awake, bits 4..7 body type), id index1, id generation,
 //     position xy, rotation cs, linear velocity xy, angular velocity (f32)
+//   probe word count P, then P words the scene's Scene_Step pushed (layouts in notes/scenes.md)
 //
 // Destroyed bodies keep their slot with flags 0 and zero data.
 
@@ -191,7 +192,7 @@ int main( int argc, char** argv )
 	strncpy( name, sceneName, sizeof( name ) - 1 );
 
 	PushWord( &w, 0x52543242u );
-	PushWord( &w, 1 );
+	PushWord( &w, 2 );
 	for ( int i = 0; i < 8; ++i )
 	{
 		uint32_t word;
@@ -216,6 +217,11 @@ int main( int argc, char** argv )
 		for ( int i = 0; i < scene.bodyCount; ++i )
 		{
 			WriteBody( &w, i, scene.bodies[i] );
+		}
+		PushInt( &w, scene.probeCount );
+		for ( int i = 0; i < scene.probeCount; ++i )
+		{
+			PushWord( &w, scene.probes[i] );
 		}
 		Flush( &w );
 	}
