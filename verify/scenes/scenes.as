@@ -54,6 +54,7 @@ import {
 	b2Body_SetTransform,
 	b2Body_SetType,
 	b2Body_WakeTouching,
+	b2Capacity,
 	b2Capsule,
 	b2CastOutput,
 	b2Circle,
@@ -173,6 +174,7 @@ import {
 	b2RevoluteJoint_SetTargetAngle,
 	b2RevoluteJoint_SetTargetMotorSpeed,
 	b2Rot,
+	b2RotateVector,
 	b2Rot_identity,
 	b2Segment,
 	b2ShapeId,
@@ -222,6 +224,7 @@ import {
 	b2World_OverlapAABB,
 	b2World_OverlapShape,
 	b2World_SetCustomFilterCallback,
+	b2World_SetGravity,
 	b2World_SetHitEventThreshold,
 	b2World_SetPreSolveCallback,
 	b2World_Step,
@@ -326,6 +329,17 @@ export class SceneDynamicMover {
 	pogoHit: bool = false;
 }
 
+// shared/benchmarks.c RainData; each human's bone bodies and joints at
+// ( groupIndex * group size + human ) * SCENE_BONE_COUNT + bone, the hip's joint null
+export class SceneRain {
+	boneBodies: StaticArray<b2BodyId> = new StaticArray<b2BodyId>(0);
+	boneJoints: StaticArray<b2JointId> = new StaticArray<b2JointId>(0);
+	gridSize: f32 = 0;
+	gridCount: i32 = 0;
+	columnCount: i32 = 0;
+	columnIndex: i32 = 0;
+}
+
 export class Scene {
 	name: string = "";
 	index: i32 = 0;
@@ -358,6 +372,7 @@ export class Scene {
 	bike: SceneVehicle = new SceneVehicle();
 	geometricMover: SceneGeometricMover = new SceneGeometricMover();
 	dynamicMover: SceneDynamicMover = new SceneDynamicMover();
+	rain: SceneRain = new SceneRain();
 }
 
 const SCENE_PYRAMID: i32 = 0;
@@ -372,6 +387,12 @@ const SCENE_EVENTS: i32 = 8;
 const SCENE_QUERIES: i32 = 9;
 const SCENE_MOVER: i32 = 10;
 const SCENE_MANY_BODIES: i32 = 11;
+const SCENE_LARGE_PYRAMID: i32 = 12;
+const SCENE_JOINT_GRID: i32 = 13;
+const SCENE_RAIN: i32 = 14;
+const SCENE_SMASH: i32 = 15;
+const SCENE_SPINNER: i32 = 16;
+const SCENE_TUMBLER: i32 = 17;
 
 const s_sceneNames: StaticArray<string> = [
 	"pyramid",
@@ -386,7 +407,19 @@ const s_sceneNames: StaticArray<string> = [
 	"queries",
 	"mover",
 	"many_bodies",
+	"large_pyramid",
+	"joint_grid",
+	"rain",
+	"smash",
+	"spinner",
+	"tumbler",
 ];
+
+// shared/benchmarks.c release sizes
+const RAIN_ROW_COUNT: i32 = 5;
+const RAIN_COLUMN_COUNT: i32 = 40;
+const RAIN_GROUP_SIZE: i32 = 5;
+const SPINNER_POINT_COUNT: i32 = 360;
 
 // samples/sample_character.cpp CollisionBits; AllBits is ~0u, which zero extends
 const s_staticBit: u64 = 0x0001;
@@ -1150,6 +1183,7 @@ function Scene_MakeBoneDefs(): StaticArray<SceneBoneDef> {
 const s_boneDefs: StaticArray<SceneBoneDef> = Scene_MakeBoneDefs();
 
 // Returns the torso body
+// boneSlot >= 0 keeps the bone bodies and joints in scene.rain from that slot, for Scene_DestroyHuman
 function Scene_CreateHuman(
 	scene: Scene,
 	position: b2Pos,
@@ -1158,6 +1192,7 @@ function Scene_CreateHuman(
 	hertz: f32,
 	dampingRatio: f32,
 	groupIndex: i32,
+	boneSlot: i32,
 ): b2BodyId {
 	let worldId = scene.worldId;
 	let bodyIds = new StaticArray<b2BodyId>(SCENE_BONE_COUNT);
@@ -1200,6 +1235,10 @@ function Scene_CreateHuman(
 		bodyDef.position = b2OffsetPos(position, b2Vec2(0.0, def.positionY * s));
 		bodyDef.linearDamping = def.linearDamping;
 		bodyIds[i] = Scene_AddBody(scene, bodyDef);
+		if (boneSlot >= 0) {
+			scene.rain.boneBodies[boneSlot + i] = bodyIds[i];
+			scene.rain.boneJoints[boneSlot + i] = b2_nullJointId;
+		}
 
 		let capsule = b2Capsule(b2Vec2(0.0, def.capsuleY1 * s), b2Vec2(0.0, def.capsuleY2 * s), def.capsuleRadius * s);
 		b2CreateCapsuleShape(bodyIds[i], shapeDef, capsule);
@@ -1231,7 +1270,10 @@ function Scene_CreateHuman(
 		jointDef.dampingRatio = dampingRatio;
 		jointDef.base.drawScale = drawSize;
 
-		b2CreateRevoluteJoint(worldId, jointDef);
+		let jointId = b2CreateRevoluteJoint(worldId, jointDef);
+		if (boneSlot >= 0) {
+			scene.rain.boneJoints[boneSlot + i] = jointId;
+		}
 	}
 
 	return bodyIds[1];
@@ -1447,7 +1489,7 @@ function CreateJoints(scene: Scene): void {
 	scene.keyJointCount = 14;
 
 	// samples/sample_joints.cpp Ragdoll
-	scene.keyBodies[1] = Scene_CreateHuman(scene, b2Vec2(34.0, 5.0), 1.0, 0.03, 5.0, 0.5, 1);
+	scene.keyBodies[1] = Scene_CreateHuman(scene, b2Vec2(34.0, 5.0), 1.0, 0.03, 5.0, 0.5, 1, -1);
 }
 
 function StepJoints(scene: Scene, stepIndex: i32): void {
@@ -3364,6 +3406,472 @@ function CreateManyBodies(scene: Scene): void {
 	}
 }
 
+// large_pyramid: shared/benchmarks.c CreateLargePyramid, base 100
+function CreateLargePyramid(scene: Scene): void {
+	b2World_EnableSleeping(scene.worldId, false);
+
+	let baseCount = 100;
+
+	{
+		let bodyDef = b2DefaultBodyDef();
+		bodyDef.position = b2Vec2(0.0, -1.0);
+		let groundId = Scene_AddBody(scene, bodyDef);
+
+		let box = b2MakeBox(100.0, 1.0);
+		let shapeDef = b2DefaultShapeDef();
+		b2CreatePolygonShape(groundId, shapeDef, box);
+	}
+
+	let bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+
+	let shapeDef = b2DefaultShapeDef();
+	shapeDef.density = 1.0;
+
+	let a: f32 = 0.5;
+	let box = b2MakeSquare(a);
+
+	let shift: f32 = 1.0 * a;
+
+	for (let i = 0; i < baseCount; ++i) {
+		let y: f32 = (2.0 * <f32>i + 1.0) * shift;
+
+		for (let j = i; j < baseCount; ++j) {
+			let x: f32 = (<f32>i + 1.0) * shift + 2.0 * <f32>(j - i) * shift - a * <f32>baseCount;
+
+			bodyDef.position = b2Vec2(x, y);
+
+			let bodyId = Scene_AddBody(scene, bodyDef);
+			b2CreatePolygonShape(bodyId, shapeDef, box);
+		}
+	}
+}
+
+// joint_grid: shared/benchmarks.c CreateJointGrid, 100 x 100 circles on revolute joints
+function CreateJointGrid(scene: Scene): void {
+	let worldId = scene.worldId;
+	b2World_EnableSleeping(worldId, false);
+
+	let N = 100;
+
+	let bodies = new StaticArray<b2BodyId>(N * N);
+	let index = 0;
+
+	let shapeDef = b2DefaultShapeDef();
+	shapeDef.density = 1.0;
+	shapeDef.filter.categoryBits = 2;
+	shapeDef.filter.maskBits = <u64>~(<u32>2);
+
+	let circle = b2Circle(b2Vec2(0.0, 0.0), 0.4);
+
+	let jointDef = b2DefaultRevoluteJointDef();
+	jointDef.base.drawScale = 0.4;
+
+	let bodyDef = b2DefaultBodyDef();
+
+	for (let k = 0; k < N; ++k) {
+		for (let i = 0; i < N; ++i) {
+			let fk: f32 = <f32>k;
+			let fi: f32 = <f32>i;
+
+			if (k >= N / 2 - 3 && k <= N / 2 + 3 && i == 0) {
+				bodyDef.type = b2_staticBody;
+			} else {
+				bodyDef.type = b2_dynamicBody;
+			}
+
+			bodyDef.position = b2Vec2(fk, -fi);
+
+			let body = Scene_AddBody(scene, bodyDef);
+
+			b2CreateCircleShape(body, shapeDef, circle);
+
+			if (i > 0) {
+				jointDef.base.bodyIdA = bodies[index - 1];
+				jointDef.base.bodyIdB = body;
+				jointDef.base.localFrameA.p = b2Vec2(0.0, -0.5);
+				jointDef.base.localFrameB.p = b2Vec2(0.0, 0.5);
+				b2CreateRevoluteJoint(worldId, jointDef);
+			}
+
+			if (k > 0) {
+				jointDef.base.bodyIdA = bodies[index - N];
+				jointDef.base.bodyIdB = body;
+				jointDef.base.localFrameA.p = b2Vec2(0.5, 0.0);
+				jointDef.base.localFrameB.p = b2Vec2(-0.5, 0.0);
+				b2CreateRevoluteJoint(worldId, jointDef);
+			}
+
+			bodies[index++] = body;
+		}
+	}
+}
+
+// rain: shared/benchmarks.c CreateRain and StepRain, 5 rows of 40 columns of 5 humans dropped onto
+// rows of boxes, then from step 320 the oldest column replaced every 8 steps
+function CreateRain(scene: Scene): void {
+	let boneCount = RAIN_ROW_COUNT * RAIN_COLUMN_COUNT * RAIN_GROUP_SIZE * SCENE_BONE_COUNT;
+	scene.rain.boneBodies = new StaticArray<b2BodyId>(boneCount);
+	scene.rain.boneJoints = new StaticArray<b2JointId>(boneCount);
+
+	scene.rain.gridSize = 0.5;
+	scene.rain.gridCount = 500;
+
+	{
+		let bodyDef = b2DefaultBodyDef();
+		let groundId = Scene_AddBody(scene, bodyDef);
+
+		let shapeDef = b2DefaultShapeDef();
+		let y: f32 = 0.0;
+		let width: f32 = scene.rain.gridSize;
+		let height: f32 = scene.rain.gridSize;
+
+		for (let i = 0; i < RAIN_ROW_COUNT; ++i) {
+			let x: f32 = -0.5 * <f32>scene.rain.gridCount * scene.rain.gridSize;
+			for (let j = 0; j <= scene.rain.gridCount; ++j) {
+				let box = b2MakeOffsetBox(0.5 * width, 0.5 * height, b2Vec2(x, y), b2Rot_identity);
+				b2CreatePolygonShape(groundId, shapeDef, box);
+
+				x += scene.rain.gridSize;
+			}
+
+			y += 45.0;
+		}
+	}
+
+	scene.rain.columnCount = 0;
+	scene.rain.columnIndex = 0;
+}
+
+// shared/benchmarks.c CreateGroup
+function Scene_CreateRainGroup(scene: Scene, rowIndex: i32, columnIndex: i32): void {
+	let groupIndex = rowIndex * RAIN_COLUMN_COUNT + columnIndex;
+
+	let span: f32 = <f32>scene.rain.gridCount * scene.rain.gridSize;
+	let groupDistance: f32 = (1.0 * span) / <f32>RAIN_COLUMN_COUNT;
+
+	let position: b2Pos = b2Pos_zero;
+	position.x = -0.5 * span + groupDistance * (<f32>columnIndex + 0.5);
+	position.y = 40.0 + 45.0 * <f32>rowIndex;
+
+	let scale: f32 = 1.0;
+	let jointFriction: f32 = 0.05;
+	let jointHertz: f32 = 5.0;
+	let jointDamping: f32 = 0.5;
+
+	for (let i = 0; i < RAIN_GROUP_SIZE; ++i) {
+		let boneSlot = (groupIndex * RAIN_GROUP_SIZE + i) * SCENE_BONE_COUNT;
+		Scene_CreateHuman(scene, position, scale, jointFriction, jointHertz, jointDamping, i + 1, boneSlot);
+		position.x += 0.5;
+	}
+}
+
+// shared/human.c DestroyHuman
+function Scene_DestroyHuman(scene: Scene, boneSlot: i32): void {
+	for (let i = 0; i < SCENE_BONE_COUNT; ++i) {
+		if (scene.rain.boneJoints[boneSlot + i].index1 == 0) {
+			continue;
+		}
+
+		b2DestroyJoint(scene.rain.boneJoints[boneSlot + i]);
+		scene.rain.boneJoints[boneSlot + i] = b2_nullJointId;
+	}
+
+	for (let i = 0; i < SCENE_BONE_COUNT; ++i) {
+		if (scene.rain.boneBodies[boneSlot + i].index1 == 0) {
+			continue;
+		}
+
+		b2DestroyBody(scene.rain.boneBodies[boneSlot + i]);
+		scene.rain.boneBodies[boneSlot + i] = b2_nullBodyId;
+	}
+}
+
+// shared/benchmarks.c DestroyGroup
+function Scene_DestroyRainGroup(scene: Scene, rowIndex: i32, columnIndex: i32): void {
+	let groupIndex = rowIndex * RAIN_COLUMN_COUNT + columnIndex;
+
+	for (let i = 0; i < RAIN_GROUP_SIZE; ++i) {
+		Scene_DestroyHuman(scene, (groupIndex * RAIN_GROUP_SIZE + i) * SCENE_BONE_COUNT);
+	}
+}
+
+function StepRain(scene: Scene, stepIndex: i32): void {
+	let delay = 0x7;
+
+	if ((stepIndex & delay) == 0) {
+		if (scene.rain.columnCount < RAIN_COLUMN_COUNT) {
+			for (let i = 0; i < RAIN_ROW_COUNT; ++i) {
+				Scene_CreateRainGroup(scene, i, scene.rain.columnCount);
+			}
+
+			scene.rain.columnCount += 1;
+		} else {
+			for (let i = 0; i < RAIN_ROW_COUNT; ++i) {
+				Scene_DestroyRainGroup(scene, i, scene.rain.columnIndex);
+				Scene_CreateRainGroup(scene, i, scene.rain.columnIndex);
+			}
+
+			scene.rain.columnIndex = (scene.rain.columnIndex + 1) % RAIN_COLUMN_COUNT;
+		}
+	}
+
+	Scene_WorldStep(scene);
+}
+
+// smash: shared/benchmarks.c CreateSmash, a heavy box into a sleeping 120 x 80 block, no gravity
+function CreateSmash(scene: Scene): void {
+	b2World_SetGravity(scene.worldId, b2Vec2_zero);
+
+	{
+		let box = b2MakeBox(4.0, 4.0);
+
+		let bodyDef = b2DefaultBodyDef();
+		bodyDef.type = b2_dynamicBody;
+		bodyDef.position = b2Vec2(-20.0, 0.0);
+		bodyDef.linearVelocity = b2Vec2(40.0, 0.0);
+		let bodyId = Scene_AddBody(scene, bodyDef);
+
+		let shapeDef = b2DefaultShapeDef();
+		shapeDef.density = 8.0;
+		b2CreatePolygonShape(bodyId, shapeDef, box);
+	}
+
+	let d: f32 = 0.4;
+	let box = b2MakeSquare(0.5 * d);
+
+	let bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+	bodyDef.isAwake = false;
+
+	let shapeDef = b2DefaultShapeDef();
+
+	let columns = 120;
+	let rows = 80;
+
+	for (let i = 0; i < columns; ++i) {
+		for (let j = 0; j < rows; ++j) {
+			bodyDef.position.x = <f32>i * d + 30.0;
+			bodyDef.position.y = (<f32>j - <f32>rows / 2.0) * d;
+			let bodyId = Scene_AddBody(scene, bodyDef);
+			b2CreatePolygonShape(bodyId, shapeDef, box);
+		}
+	}
+}
+
+// spinner: shared/benchmarks.c CreateSpinner and StepSpinner, a motorized paddle in a loop chain
+// stirring 6076 capsules, circles and boxes. keyJoints: 0 spinner
+function CreateSpinner(scene: Scene): void {
+	let worldId = scene.worldId;
+
+	let groundId = b2_nullBodyId;
+	{
+		let bodyDef = b2DefaultBodyDef();
+		groundId = Scene_AddBody(scene, bodyDef);
+
+		let points = new StaticArray<b2Vec2>(SPINNER_POINT_COUNT);
+
+		let q = b2MakeRot((-2.0 * B2_PI) / <f32>SPINNER_POINT_COUNT);
+		let p = b2Vec2(40.0, 0.0);
+		for (let i = 0; i < SPINNER_POINT_COUNT; ++i) {
+			points[i] = b2Vec2(p.x, p.y + 32.0);
+			p = b2RotateVector(q, p);
+		}
+
+		let materials = new StaticArray<b2SurfaceMaterial>(1);
+		materials[0] = b2SurfaceMaterial();
+		materials[0].friction = 0.1;
+
+		let chainDef = b2DefaultChainDef();
+		chainDef.points = points;
+		chainDef.pointCount = SPINNER_POINT_COUNT;
+		chainDef.isLoop = true;
+		chainDef.materials = materials;
+		chainDef.materialCount = 1;
+
+		b2CreateChain(groundId, chainDef);
+	}
+
+	{
+		let bodyDef = b2DefaultBodyDef();
+		bodyDef.type = b2_dynamicBody;
+		bodyDef.position = b2Vec2(0.0, 12.0);
+		bodyDef.enableSleep = false;
+
+		let spinnerId = Scene_AddBody(scene, bodyDef);
+
+		let box = b2MakeRoundedBox(0.4, 20.0, 0.2);
+		let shapeDef = b2DefaultShapeDef();
+		shapeDef.material.friction = 0.0;
+		b2CreatePolygonShape(spinnerId, shapeDef, box);
+
+		let motorSpeed: f32 = 5.0;
+		let maxMotorTorque: f32 = FLT_MAX;
+		let jointDef = b2DefaultRevoluteJointDef();
+		jointDef.base.bodyIdA = groundId;
+		jointDef.base.bodyIdB = spinnerId;
+		jointDef.base.localFrameA.p = b2Body_GetLocalPoint(groundId, bodyDef.position);
+		jointDef.enableMotor = true;
+		jointDef.motorSpeed = motorSpeed;
+		jointDef.maxMotorTorque = maxMotorTorque;
+
+		scene.keyJoints[0] = b2CreateRevoluteJoint(worldId, jointDef);
+	}
+
+	let capsule = b2Capsule(b2Vec2(-0.25, 0.0), b2Vec2(0.25, 0.0), 0.25);
+	let circle = b2Circle(b2Vec2(0.0, 0.0), 0.35);
+	let square = b2MakeSquare(0.35);
+
+	let bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+	let shapeDef = b2DefaultShapeDef();
+	shapeDef.material.friction = 0.1;
+	shapeDef.material.restitution = 0.1;
+	shapeDef.density = 0.25;
+
+	let bodyCount = 2 * 3038;
+
+	let x: f32 = -23.0;
+	let y: f32 = 2.0;
+	for (let i = 0; i < bodyCount; ++i) {
+		bodyDef.position = b2Vec2(x, y);
+		let bodyId = Scene_AddBody(scene, bodyDef);
+
+		let remainder = i % 3;
+		if (remainder == 0) {
+			b2CreateCapsuleShape(bodyId, shapeDef, capsule);
+		} else if (remainder == 1) {
+			b2CreateCircleShape(bodyId, shapeDef, circle);
+		} else if (remainder == 2) {
+			b2CreatePolygonShape(bodyId, shapeDef, square);
+		}
+
+		x += 0.5;
+
+		if (x >= 23.0) {
+			x = -23.0;
+			y += 0.5;
+		}
+	}
+}
+
+// StepSpinner's angle, read before the step as the benchmark does
+function StepSpinner(scene: Scene): void {
+	Probe_Float(scene, b2RevoluteJoint_GetCurrentAngle(scene.keyJoints[0]));
+	Scene_WorldStep(scene);
+}
+
+// tumbler: shared/benchmarks.c CreateTumbler, a motorized box of four walls turning 2025 small boxes
+function CreateTumbler(scene: Scene): void {
+	let worldId = scene.worldId;
+
+	let groundId = b2_nullBodyId;
+	{
+		let bodyDef = b2DefaultBodyDef();
+		groundId = Scene_AddBody(scene, bodyDef);
+	}
+
+	{
+		let bodyDef = b2DefaultBodyDef();
+		bodyDef.type = b2_dynamicBody;
+		bodyDef.position = b2Vec2(0.0, 10.0);
+		let bodyId = Scene_AddBody(scene, bodyDef);
+
+		let shapeDef = b2DefaultShapeDef();
+		shapeDef.density = 50.0;
+
+		let polygon = b2MakeOffsetBox(0.5, 10.0, b2Vec2(10.0, 0.0), b2Rot_identity);
+		b2CreatePolygonShape(bodyId, shapeDef, polygon);
+		polygon = b2MakeOffsetBox(0.5, 10.0, b2Vec2(-10.0, 0.0), b2Rot_identity);
+		b2CreatePolygonShape(bodyId, shapeDef, polygon);
+		polygon = b2MakeOffsetBox(10.0, 0.5, b2Vec2(0.0, 10.0), b2Rot_identity);
+		b2CreatePolygonShape(bodyId, shapeDef, polygon);
+		polygon = b2MakeOffsetBox(10.0, 0.5, b2Vec2(0.0, -10.0), b2Rot_identity);
+		b2CreatePolygonShape(bodyId, shapeDef, polygon);
+
+		let motorSpeed: f32 = 25.0;
+
+		let jointDef = b2DefaultRevoluteJointDef();
+		jointDef.base.bodyIdA = groundId;
+		jointDef.base.bodyIdB = bodyId;
+		jointDef.base.localFrameA.p = b2Vec2(0.0, 10.0);
+		jointDef.base.localFrameB.p = b2Vec2(0.0, 0.0);
+		jointDef.motorSpeed = (B2_PI / 180.0) * motorSpeed;
+		jointDef.maxMotorTorque = 1e8;
+		jointDef.enableMotor = true;
+
+		b2CreateRevoluteJoint(worldId, jointDef);
+	}
+
+	let gridCount = 45;
+
+	let polygon = b2MakeBox(0.125, 0.125);
+	let bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+	let shapeDef = b2DefaultShapeDef();
+
+	let y: f32 = -0.2 * <f32>gridCount + 10.0;
+	for (let i = 0; i < gridCount; ++i) {
+		let x: f32 = -0.2 * <f32>gridCount;
+
+		for (let j = 0; j < gridCount; ++j) {
+			bodyDef.position = b2Vec2(x, y);
+			let bodyId = Scene_AddBody(scene, bodyDef);
+
+			b2CreatePolygonShape(bodyId, shapeDef, polygon);
+
+			x += 0.4;
+		}
+
+		y += 0.4;
+	}
+}
+
+// The benchmarks' world capacities at release sizes; zero for the other scenes
+function Scene_GetCapacity(index: i32): b2Capacity {
+	let c = b2Capacity();
+	if (index == SCENE_LARGE_PYRAMID) {
+		c.staticShapeCount = 1;
+		c.dynamicShapeCount = 5600;
+		c.staticBodyCount = 1;
+		c.dynamicBodyCount = 5600;
+		c.contactCount = 19000;
+		c.arenaByteCount = 2800 * 1024;
+	} else if (index == SCENE_JOINT_GRID) {
+		c.staticShapeCount = 7;
+		c.dynamicShapeCount = 11000;
+		c.staticBodyCount = 7;
+		c.dynamicBodyCount = 11000;
+		c.arenaByteCount = 120 * 1024;
+	} else if (index == SCENE_RAIN) {
+		c.staticShapeCount = 2800;
+		c.dynamicShapeCount = 15000;
+		c.staticBodyCount = 1;
+		c.dynamicBodyCount = 13000;
+		c.contactCount = 29000;
+		c.arenaByteCount = 1900 * 1024;
+	} else if (index == SCENE_SMASH) {
+		c.dynamicShapeCount = 11000;
+		c.dynamicBodyCount = 11000;
+		c.contactCount = 55000;
+		c.arenaByteCount = 4900 * 1024;
+	} else if (index == SCENE_SPINNER) {
+		c.staticShapeCount = 400;
+		c.dynamicShapeCount = 6700;
+		c.staticBodyCount = 1;
+		c.dynamicBodyCount = 6700;
+		c.contactCount = 41000;
+		c.arenaByteCount = 4600 * 1024;
+	} else if (index == SCENE_TUMBLER) {
+		c.dynamicShapeCount = 2300;
+		c.staticBodyCount = 1;
+		c.dynamicBodyCount = 2300;
+		c.contactCount = 13000;
+		c.arenaByteCount = 1100 * 1024;
+	}
+	return c;
+}
+
 // Returns false for an unknown scene name
 export function Scene_Create(scene: Scene, name: string, workerCount: i32): bool {
 	let index = -1;
@@ -3381,6 +3889,7 @@ export function Scene_Create(scene: Scene, name: string, workerCount: i32): bool
 
 	let worldDef = b2DefaultWorldDef();
 	worldDef.workerCount = workerCount;
+	worldDef.capacity = Scene_GetCapacity(index);
 	scene.worldId = b2CreateWorld(worldDef);
 
 	if (index == SCENE_PYRAMID) {
@@ -3407,6 +3916,18 @@ export function Scene_Create(scene: Scene, name: string, workerCount: i32): bool
 		CreateMover(scene);
 	} else if (index == SCENE_MANY_BODIES) {
 		CreateManyBodies(scene);
+	} else if (index == SCENE_LARGE_PYRAMID) {
+		CreateLargePyramid(scene);
+	} else if (index == SCENE_JOINT_GRID) {
+		CreateJointGrid(scene);
+	} else if (index == SCENE_RAIN) {
+		CreateRain(scene);
+	} else if (index == SCENE_SMASH) {
+		CreateSmash(scene);
+	} else if (index == SCENE_SPINNER) {
+		CreateSpinner(scene);
+	} else if (index == SCENE_TUMBLER) {
+		CreateTumbler(scene);
 	}
 
 	return true;
@@ -3437,6 +3958,10 @@ export function Scene_Step(scene: Scene, stepIndex: i32): void {
 		StepQueries(scene, stepIndex);
 	} else if (index == SCENE_MOVER) {
 		StepMover(scene, stepIndex);
+	} else if (index == SCENE_RAIN) {
+		StepRain(scene, stepIndex);
+	} else if (index == SCENE_SPINNER) {
+		StepSpinner(scene);
 	} else {
 		Scene_WorldStep(scene);
 	}
@@ -3447,4 +3972,5 @@ export function Scene_Destroy(scene: Scene): void {
 	scene.bodies = new Array<b2BodyId>(0);
 	scene.bodyCount = 0;
 	scene.probes = new Array<u32>(0);
+	scene.rain = new SceneRain();
 }

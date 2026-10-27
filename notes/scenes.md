@@ -34,6 +34,12 @@ creation order, destroyed ones keep their slot.
 | `queries` | own | 18 | 21 | 0 | 300 | `b2World_OverlapAABB`, `OverlapShape`, `CastRay` (all hits), `CastRayClosest`, `CastShape` (closest by clipping), `b2World_Explode`, `b2Shape_CastRay`, `TestPoint`, `GetClosestPoint`, `GetBounds`, `b2Body_ComputeBounds`, `b2World_GetBounds`, body point and vector helpers, custom filter callback |
 | `mover` | sample_character.cpp GeometryMoverSample, geometric_mover.cpp | 70 | 166 | 52 | 900 | `b2World_CollideMover`, `b2SolvePlanes`, `b2World_CastMover`, `b2ClipVector`, `b2SpringDamper` pogo, soft planes from shape user data, pushing bodies with `b2Body_ApplyLinearImpulse`, ground force with `b2Body_ApplyForce` |
 | `many_bodies` | benchmarks.c CreateManyPyramids, 10 x 10 | 5501 | 5510 | 0 | 100 | 100 pyramids of 55 boxes, sleep off; the perf scene (24 MB recording) |
+| `large_pyramid` | benchmarks.c CreateLargePyramid | 5051 | 5051 | 0 | 100 | base 100 pyramid, sleep off |
+| `joint_grid` | benchmarks.c CreateJointGrid | 10000 | 10000 | 19800 | 100 | 100 x 100 circles on revolute joints hanging from 7 static bodies, filter mask `~2u`, sleep off |
+| `rain` | benchmarks.c CreateRain, StepRain | 1 (+12375) | 2505 (+14625) | 0 (+11250) | 360 | a column of 5 x 5 ragdolls every 8 steps onto 5 rows of 501 offset boxes; from step 320 the oldest column is destroyed (joints, then bodies, as human.c DestroyHuman) and rebuilt |
+| `smash` | benchmarks.c CreateSmash | 9601 | 9601 | 0 | 120 | zero gravity, a dense box at 40 m/s into a 120 x 80 block created asleep (`isAwake = false`), impact near step 60 |
+| `spinner` | benchmarks.c CreateSpinner, StepSpinner | 6078 | 6437 | 1 | 300 | 360 point loop chain with a zero material, motorized rounded box paddle (`maxMotorTorque = FLT_MAX`), 6076 capsules, circles and boxes |
+| `tumbler` | benchmarks.c CreateTumbler | 2027 | 2029 | 1 | 200 | four wall box on a 25 deg/s revolute motor turning 2025 small boxes |
 
 ### Deviations from the samples
 
@@ -52,6 +58,15 @@ creation order, destroyed ones keep their slot.
 - `dynamic_mover` keeps the sample order (mover update, then world step); `mover` steps the world
   first, as `GeometryMoverSample::Step` does.
 - `many_bodies`: 10 x 10 pyramids instead of 20 x 20.
+- The six benchmarks.c scenes use the release (`NDEBUG`) sizes and the benchmark's `b2Capacity` as
+  `worldDef.capacity` (`Scene_GetCapacity`); every other scene keeps a zero capacity. The scripted
+  steps run before `b2World_Step` with the step index, as benchmark/main.c calls a step function.
+- `rain`: the humans come from the table driven `Scene_CreateHuman` (the one `joints` uses) with a bone
+  slot, so `Scene_DestroyHuman` finds each bone's body and joint as human.c's `Human` does. 360 steps
+  so the destroy and rebuild phase (from step 320) is covered; its heap keeps growing with the bodies
+  the script adds, and the recorder's per step buffer grows with the body list.
+- `smash` and `tumbler` grow the heap until the contact count peaks (steps 150 and 100) and are flat
+  from there to step 800; `large_pyramid`, `joint_grid` and `spinner` are flat between steps 20 and 200.
 
 ## Format, version 2
 
@@ -73,7 +88,8 @@ shapeId* (with point xy, normal xy, fraction for casts).
 
 | scene | after `b2World_Step` |
 |---|---|
-| `pyramid`, `shape_rain`, `many_bodies` | none |
+| `pyramid`, `shape_rain`, `many_bodies`, `large_pyramid`, `joint_grid`, `rain`, `smash`, `tumbler` | none |
+| `spinner` | before `b2World_Step`, as the benchmark's StepSpinner: `b2RevoluteJoint_GetCurrentAngle` of the spinner |
 | `chain_car` | car then bike: rear axle motor torque, rear joint, front motor torque, front joint, rear wheel contact count, contact data* |
 | `joints` | joint events (count, (jointId, userData)*), joint block for key slots 0..13, then distance length, spring force, motor force, prismatic translation, speed, motor force, revolute angle, speed, motor torque, wheel motor torque |
 | `dynamic_mover` | cast hit, point, normal, bodyId, fraction, velocity, onGround, walkable, jumping, jumpTicks, pogo impulse, velocity, length, pogo jointId, mover joint, pogo joint |
