@@ -158,6 +158,7 @@ function b2EnqueueTreeUpdate(world: b2World): void {
 	return count + count / 4 + 16;
 }
 
+@noinline
 export function b2UpdateBroadPhasePairs(world: b2World): void {
 	let bp = world.broadPhase;
 

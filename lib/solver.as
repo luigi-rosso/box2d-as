@@ -56,7 +56,8 @@ import {
 	b2BodySim,
 	b2BodyState,
 	b2GetBodySim,
-	b2MakeRelativeSweep,
+	b2GetBodySimAddress,
+	b2MakeRelativeSweepAt,
 	b2ShouldBodiesCollide,
 	b2_allowFastRotation,
 	b2_bodyTransientFlags,
@@ -539,7 +540,7 @@ unsafe function b2ContinuousQueryCallback(proxyId: i32, userData: u64, continuou
 
 	let bodyId = world.shapes[shapeId].bodyId;
 
-	let bodySim = b2GetBodySim(world, bodyId);
+	let bodySim = b2GetBodySimAddress(world, bodyId);
 	if (B2_ASSERT_ENABLED) {
 		B2_ASSERT(world.bodies[bodyId].type == b2_staticBody || (load<u32>(fastBodySim + SIM_FLAGS) & b2_isBullet) != 0);
 	}
@@ -573,7 +574,7 @@ unsafe function b2ContinuousQueryCallback(proxyId: i32, userData: u64, continuou
 
 	// Early out on fast parallel movement over a chain shape.
 	if (world.shapes[shapeId].type == b2_chainSegmentShape) {
-		let transform = b2ToRelativeTransform(bodySim.transform, continuousContext.base);
+		let transform = b2ToRelativeTransform(load<b2Transform>(bodySim + offsetof<b2BodySim>("transform")), continuousContext.base);
 		let p1 = b2TransformPoint(transform, world.shapes[shapeId].chainSegment.segment.point1);
 		let p2 = b2TransformPoint(transform, world.shapes[shapeId].chainSegment.segment.point2);
 		let e = b2Sub(p2, p1);
@@ -597,7 +598,7 @@ unsafe function b2ContinuousQueryCallback(proxyId: i32, userData: u64, continuou
 	let input = b2TOIInput();
 	input.proxyA = b2MakeShapeDistanceProxy(world, shapeId);
 	input.proxyB = b2MakeShapeDistanceProxy(world, fastShapeId);
-	input.sweepA = b2MakeRelativeSweep(bodySim, continuousContext.base);
+	input.sweepA = b2MakeRelativeSweepAt(bodySim, continuousContext.base);
 	input.sweepB = continuousContext.sweep;
 	input.maxFraction = continuousContext.fraction;
 
@@ -677,7 +678,7 @@ unsafe function b2SolveContinuous(world: b2World, bodySimIndex: i32, taskContext
 
 	// Re-center the sweep on the fast body so the TOI and the swept query stay in float precision
 	let base = load<b2Vec2>(fastBodySim + SIM_CENTER0);
-	let sweep = b2MakeRelativeSweep(load<b2BodySim>(fastBodySim), base);
+	let sweep = b2MakeRelativeSweepAt(fastBodySim, base);
 
 	let xf1 = b2Transform();
 	xf1.q = sweep.q1;
@@ -1594,6 +1595,7 @@ function b2ReserveStages(a: StaticArray<b2SolverStage>, count: i32): StaticArray
 }
 
 // Solve with graph coloring
+@noinline
 export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void {
 	let scratch = b2_solverScratch;
 	let simdShift = world.simdWidth == 8 ? 3 : 2;

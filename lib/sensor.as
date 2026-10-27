@@ -265,6 +265,7 @@ function b2PushSensorBegin(world: b2World, sensorId: b2ShapeId, visitorId: b2Sha
 	world.sensorBeginEvents.push(event);
 }
 
+@noinline
 export function b2OverlapSensors(world: b2World): void {
 	let sensorCount = world.sensors.length;
 	if (sensorCount == 0) {

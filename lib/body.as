@@ -224,6 +224,12 @@ export const b2_identityBodyState: b2BodyState = b2MakeIdentityBodyState();
 	return load<usize>(changetype<usize>(a) + offsetof<Array<i32>>("dataStart"));
 }
 
+// C points into a growable Array of structs; this views its buffer as a StaticArray so an element binds by ref in
+// place, valid until the array grows. An Array's data is its buffer object, so the view's length is the capacity.
+@inline export unsafe function b2ArrayView<A>(a: A): StaticArray<valueof<A>> {
+	return changetype<StaticArray<valueof<A>>>(b2ArrayData(a));
+}
+
 function b2MakeIdentityStates(): StaticArray<b2BodyState> {
 	let states = new StaticArray<b2BodyState>(1);
 	states[0] = b2_identityBodyState;
@@ -285,6 +291,17 @@ export function b2MakeRelativeSweep(bodySim: b2BodySim, base: b2Pos): b2Sweep {
 	s.q1 = bodySim.rotation0;
 	s.q2 = bodySim.transform.q;
 	s.localCenter = bodySim.localCenter;
+	return s;
+}
+
+// b2MakeRelativeSweep of the sim at an address, read in place as C reads through its pointer
+export unsafe function b2MakeRelativeSweepAt(bodySim: usize, base: b2Pos): b2Sweep {
+	let s: b2Sweep;
+	s.c1 = b2SubPos(load<b2Vec2>(bodySim + offsetof<b2BodySim>("center0")), base);
+	s.c2 = b2SubPos(load<b2Vec2>(bodySim + offsetof<b2BodySim>("center")), base);
+	s.q1 = load<b2Rot>(bodySim + offsetof<b2BodySim>("rotation0"));
+	s.q2 = load<b2Rot>(bodySim + offsetof<b2BodySim>("transform") + offsetof<b2Transform>("q"));
+	s.localCenter = load<b2Vec2>(bodySim + offsetof<b2BodySim>("localCenter"));
 	return s;
 }
 

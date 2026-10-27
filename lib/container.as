@@ -40,12 +40,19 @@ export function b2Array_Append<A, S>(a: A, src: S, n: i32): void {
 
 // Remove an element by swapping with the last element. If the index is the last element it returns
 // B2_NULL_INDEX, otherwise it returns the index of the last element (which is now out of bounds).
-export function b2Array_RemoveSwap<A>(a: A, index: i32): i32 {
+export unsafe function b2Array_RemoveSwap<A>(a: A, index: i32): i32 {
 	if (B2_ASSERT_ENABLED) B2_ASSERT(0 <= index && index < a.length);
 
 	let count = a.length - 1;
 	if (index != count) {
-		a[index] = a[count];
+		if (isValueClass<valueof<A>>()) {
+			// One copy of the whole element, as C's memcpy; a struct assignment moves it field by field
+			let data = load<usize>(changetype<usize>(a) + offsetof<Array<i32>>("dataStart"));
+			let size = sizeof<valueof<A>>();
+			memory.copy(data + <usize>index * size, data + <usize>count * size, size);
+		} else {
+			a[index] = a[count];
+		}
 		a.length = count;
 		return count;
 	}

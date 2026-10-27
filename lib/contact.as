@@ -34,7 +34,7 @@ import {
 import { b2ContactId, b2ShapeId } from "./id";
 import { B2_SHAPE_PAIR_KEY, b2AddKey, b2RemoveKey } from "./table";
 import { b2AllocId, b2FreeId } from "./id_pool";
-import { b2Array_RemoveSwap } from "./container";
+import { b2Array_AddIndex, b2Array_RemoveSwap } from "./container";
 import {
 	b2ContactData,
 	b2ContactEndTouchEvent,
@@ -171,6 +171,12 @@ export struct b2ContactSim {
 	tangentSpeed: f32 = 0;
 
 	cache: b2SimplexCache = b2SimplexCache();
+}
+
+// C points into the growable contact Array; this views its buffer as a StaticArray so a contact binds by ref in
+// place, valid until the array grows
+@inline export unsafe function b2ContactView(contacts: Array<b2Contact>): StaticArray<b2Contact> {
+	return changetype<StaticArray<b2Contact>>(b2ArrayData(contacts));
 }
 
 // C points into a growable Array of contact sims; this views the Array's buffer as a StaticArray so an element
@@ -327,8 +333,8 @@ export function b2CanCollide(typeA: b2ShapeType, typeB: b2ShapeType): bool {
 	return b2_contactRegistryHasFcn[typeA * b2_shapeTypeCount + typeB];
 }
 
-function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
-	let shapes = world.shapes;
+unsafe function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
+	let shapes = b2ShapeView(world.shapes);
 	let frictionCallback = world.frictionCallback;
 	if (frictionCallback == null) {
 		return b2MixFriction(shapes[shapeIdA].material.friction, shapes[shapeIdB].material.friction);
@@ -342,8 +348,8 @@ function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
 	);
 }
 
-function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
-	let shapes = world.shapes;
+unsafe function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
+	let shapes = b2ShapeView(world.shapes);
 	let restitutionCallback = world.restitutionCallback;
 	if (restitutionCallback == null) {
 		return b2MixRestitution(shapes[shapeIdA].material.restitution, shapes[shapeIdB].material.restitution);
@@ -358,7 +364,7 @@ function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 
 }
 
 // WARNING: this should never fail to create a contact because the pair already exists in the pairSet.
-export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): void {
+export unsafe function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): void {
 	let type1 = world.shapes[shapeIdA].type;
 	let type2 = world.shapes[shapeIdB].type;
 
@@ -400,7 +406,8 @@ export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): v
 		world.contacts.push(b2Contact());
 	}
 
-	let contact = world.contacts[contactId];
+	let contacts = b2ContactView(world.contacts);
+	ref contact = contacts[contactId];
 	contact.contactId = contactId;
 	contact.generation += 1;
 	contact.setIndex = setIndex;
@@ -435,7 +442,7 @@ export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): v
 		let keyA = (contactId << 1) | 0;
 		let headContactKey = world.bodies[bodyIdA].headContactKey;
 		if (headContactKey != B2_NULL_INDEX) {
-			world.contacts[headContactKey >> 1].edges[headContactKey & 1].prevKey = keyA;
+			contacts[headContactKey >> 1].edges[headContactKey & 1].prevKey = keyA;
 		}
 		world.bodies[bodyIdA].headContactKey = keyA;
 		world.bodies[bodyIdA].contactCount += 1;
@@ -450,13 +457,12 @@ export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): v
 		let keyB = (contactId << 1) | 1;
 		let headContactKey = world.bodies[bodyIdB].headContactKey;
 		if (headContactKey != B2_NULL_INDEX) {
-			world.contacts[headContactKey >> 1].edges[headContactKey & 1].prevKey = keyB;
+			contacts[headContactKey >> 1].edges[headContactKey & 1].prevKey = keyB;
 		}
 		world.bodies[bodyIdB].headContactKey = keyB;
 		world.bodies[bodyIdB].contactCount += 1;
 	}
 
-	world.contacts[contactId] = contact;
 
 	// Add to pair set for fast lookup.
 	let pairKey = B2_SHAPE_PAIR_KEY(shapeIdA, shapeIdB);
@@ -464,7 +470,9 @@ export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): v
 
 	// Contacts are created as non-touching. Later if they are found to be touching
 	// they will link islands and be moved into the constraint graph.
-	let contactSim = b2ContactSim();
+	let simIndex = b2Array_AddIndex(set.contactSims);
+	let sims = b2ContactSimView(set.contactSims);
+	ref contactSim = sims[simIndex];
 	contactSim.contactId = contactId;
 
 	let bodyView = b2BodyView(world.bodies);
@@ -489,8 +497,6 @@ export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): v
 	if (world.shapes[shapeIdA].enablePreSolveEvents || world.shapes[shapeIdB].enablePreSolveEvents) {
 		contactSim.simFlags |= b2_simEnablePreSolveEvents;
 	}
-
-	set.contactSims.push(contactSim);
 }
 
 // A contact is destroyed when:
@@ -625,7 +631,7 @@ const b2_preSolveManifold = new b2PreSolveManifold();
 
 // Update the contact manifold and touching status.
 // Note: do not assume the shape AABBs are overlapping or are valid.
-export function b2UpdateContact(
+export unsafe function b2UpdateContact(
 	world: b2World,
 	contactSim: ref b2ContactSim,
 	shapeIdA: i32,
@@ -658,7 +664,7 @@ export function b2UpdateContact(
 		mp.id = local.points[i].id;
 	}
 
-	let shapes = world.shapes;
+	let shapes = b2ShapeView(world.shapes);
 
 	// Keep these updated in case the values on the shapes are modified
 	contactSim.friction = b2MixFrictionFor(world, shapeIdA, shapeIdB);
@@ -667,9 +673,8 @@ export function b2UpdateContact(
 	let rollingA = shapes[shapeIdA].material.rollingResistance;
 	let rollingB = shapes[shapeIdB].material.rollingResistance;
 	if (rollingA > 0.0 || rollingB > 0.0) {
-		let shapeView = b2ShapeView(shapes);
-		let radiusA = b2GetShapeRadius(shapeView[shapeIdA]);
-		let radiusB = b2GetShapeRadius(shapeView[shapeIdB]);
+		let radiusA = b2GetShapeRadius(shapes[shapeIdA]);
+		let radiusB = b2GetShapeRadius(shapes[shapeIdB]);
 		let maxRadius = b2MaxFloat(radiusA, radiusB);
 		contactSim.rollingResistance = b2MaxFloat(rollingA, rollingB) * maxRadius;
 	} else {

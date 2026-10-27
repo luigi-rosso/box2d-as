@@ -131,7 +131,7 @@ import {
 } from "./types";
 import { b2BroadPhase, b2CreateBroadPhase, b2UpdateBroadPhasePairs } from "./broad_phase";
 import { b2AddContactToGraph, b2ConstraintGraph, b2CreateGraph, b2RemoveContactFromGraph } from "./constraint_graph";
-import { b2ArrayData, b2Body, b2BodySim, b2GetBodySimAddress, b2GetBodyTransformQuick, b2IsStaticSimIndex, b2WakeBody } from "./body";
+import { b2ArrayData, b2ArrayView, b2Body, b2BodySim, b2GetBodySimAddress, b2GetBodyTransformQuick, b2IsStaticSimIndex, b2WakeBody } from "./body";
 import { b2SolverSet, b2WakeSolverSet, b2_awakeSet, b2_disabledSet, b2_firstSleepingSet, b2_staticSet } from "./solver_set";
 import { b2Joint } from "./joint";
 import {
@@ -595,7 +595,8 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 	let world = stepContext.world;
 	let taskContext = world.taskContexts[workerIndex];
 	let spans = stepContext.collideSpans;
-	let fatAABBs = world.fatAABBs;
+	let fatAABBs = b2ArrayView(world.fatAABBs);
+	let shapes = b2ArrayView(world.shapes);
 	let awakeSims = b2ArrayData(world.solverSets[b2_awakeSet].bodySims);
 	let staticSims = b2ArrayData(world.solverSets[b2_staticSet].bodySims);
 
@@ -642,8 +643,8 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 		// Update contact respecting shape/body order (A,B)
 		let encodedA = contactSim.encodedBodySimA;
 		let encodedB = contactSim.encodedBodySimB;
-		let bodySimA = b2ResolveContactBodySim(world, awakeSims, staticSims, encodedA, world.shapes[shapeIdA].bodyId);
-		let bodySimB = b2ResolveContactBodySim(world, awakeSims, staticSims, encodedB, world.shapes[shapeIdB].bodyId);
+		let bodySimA = b2ResolveContactBodySim(world, awakeSims, staticSims, encodedA, shapes[shapeIdA].bodyId);
+		let bodySimB = b2ResolveContactBodySim(world, awakeSims, staticSims, encodedB, shapes[shapeIdB].bodyId);
 		let transformA = load<b2Transform>(bodySimA + offsetof<b2BodySim>("transform"));
 		let transformB = load<b2Transform>(bodySimB + offsetof<b2BodySim>("transform"));
 
@@ -795,6 +796,7 @@ function b2MakeCollideSpans(): StaticArray<b2ContactCollideSpan> {
 }
 
 // Narrow-phase collision
+@noinline
 function b2Collide(context: b2StepContext): void {
 	let world = context.world;
 

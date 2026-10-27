@@ -482,7 +482,7 @@ function b2SolveSimplex3(s: ref b2Simplex): b2Vec2 {
 // https://box2d.org/files/ErinCatto_GJK_GDC2010.pdf
 // I spent time optimizing this and could find no further significant gains 3/30/2025
 export function b2ComputeShapeDistance(
-	input: b2DistanceInput,
+	input: ref b2DistanceInput,
 	cache: ref b2SimplexCache,
 	simplexes: StaticArray<b2Simplex>?,
 	simplexCapacity: i32,
@@ -939,7 +939,7 @@ function b2EvaluateSeparation(f: ref b2SeparationFunction, proxyA: ref b2ShapePr
 /// non-tunneling collisions. If you change the time interval, you should call this function again.
 // CCD via the local separating axis method. This seeks progression
 // by computing the largest time at which separation is maintained.
-export function b2ComputeTimeOfImpact(input: b2TOIInput): b2TOIOutput {
+export function b2ComputeTimeOfImpact(input: ref b2TOIInput): b2TOIOutput {
 	let output: b2TOIOutput;
 	output.state = b2_toiStateUnknown;
 	output.fraction = input.maxFraction;
