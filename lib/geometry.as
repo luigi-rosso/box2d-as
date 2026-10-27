@@ -459,7 +459,7 @@ export function b2ComputeCapsuleFatAABB(shape: b2Capsule, xf: b2WorldTransform, 
 	return aabb;
 }
 
-export function b2ComputePolygonFatAABB(shape: b2Polygon, xf: b2WorldTransform, extra: f32): b2AABB {
+export function b2ComputePolygonFatAABB(shape: ref b2Polygon, xf: b2WorldTransform, extra: f32): b2AABB {
 	if (B2_ASSERT_ENABLED) B2_ASSERT(shape.count > 0);
 	let v = b2TransformWorldPoint(xf, shape.vertices[0]);
 	let lx = <f64>v.x;
@@ -505,7 +505,7 @@ export function b2ComputeCapsuleBounds(shape: b2Capsule, xf: b2WorldTransform): 
 }
 
 /// Compute the bounding box of a transformed polygon
-export function b2ComputePolygonBounds(shape: b2Polygon, xf: b2WorldTransform): b2AABB {
+export function b2ComputePolygonBounds(shape: ref b2Polygon, xf: b2WorldTransform): b2AABB {
 	return b2ComputePolygonFatAABB(shape, xf, 0.0);
 }
 

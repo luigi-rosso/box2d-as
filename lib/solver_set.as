@@ -16,7 +16,7 @@ import {
 	b2_identityBodyState,
 	b2_isFast,
 } from "./body";
-import { b2ContactSim, b2_contactTouchingFlag, b2_simTouchingFlag } from "./contact";
+import { b2ContactSim, b2ContactSimView, b2_contactTouchingFlag, b2_simTouchingFlag } from "./contact";
 import { b2IslandSim } from "./island";
 import { b2JointSim } from "./joint";
 import { b2World } from "./physics_world";
@@ -174,7 +174,8 @@ export function b2WakeSolverSet(world: b2World, setIndex: i32): void {
 	{
 		let contactCount = set.contactSims.length;
 		for (let i = 0; i < contactCount; ++i) {
-			let contactSim = set.contactSims[i];
+			let setSims = b2ContactSimView(set.contactSims);
+			ref contactSim = setSims[i];
 			let contactId = contactSim.contactId;
 			if (B2_ASSERT_ENABLED) {
 				B2_ASSERT((world.contacts[contactId].flags & b2_contactTouchingFlag) != 0);

@@ -149,7 +149,7 @@ export function b2CollideCapsuleAndCircle(capsuleA: b2Capsule, circleB: b2Circle
 }
 
 /// Compute the contact manifold between a polygon and a circle
-export function b2CollidePolygonAndCircle(polygonA: b2Polygon, circleB: b2Circle, xf: b2Transform): b2LocalManifold {
+export function b2CollidePolygonAndCircle(polygonA: ref b2Polygon, circleB: b2Circle, xf: b2Transform): b2LocalManifold {
 	let manifold: b2LocalManifold;
 	const speculativeDistance = B2_SPECULATIVE_DISTANCE();
 
@@ -474,7 +474,7 @@ export function b2CollideSegmentAndCapsule(segmentA: b2Segment, capsuleB: b2Caps
 }
 
 /// Compute the contact manifold between a polygon and capsule
-export function b2CollidePolygonAndCapsule(polygonA: b2Polygon, capsuleB: b2Capsule, xf: b2Transform): b2LocalManifold {
+export function b2CollidePolygonAndCapsule(polygonA: ref b2Polygon, capsuleB: b2Capsule, xf: b2Transform): b2LocalManifold {
 	let polyB = b2MakeCapsule(capsuleB.center1, capsuleB.center2, capsuleB.radius);
 	return b2CollidePolygons(polygonA, polyB, xf);
 }
@@ -664,7 +664,7 @@ function b2FindMaxSeparation(poly1: ref b2Polygon, poly2: ref b2Polygon): b2MaxS
 // end
 
 /// Compute the contact manifold between two polygons
-export function b2CollidePolygons(polygonA: b2Polygon, polygonB: b2Polygon, xf: b2Transform): b2LocalManifold {
+export function b2CollidePolygons(polygonA: ref b2Polygon, polygonB: ref b2Polygon, xf: b2Transform): b2LocalManifold {
 	let origin = polygonA.vertices[0];
 	let linearSlop = B2_LINEAR_SLOP();
 	let speculativeDistance = B2_SPECULATIVE_DISTANCE();
@@ -864,7 +864,7 @@ export function b2CollideSegmentAndCircle(segmentA: b2Segment, circleB: b2Circle
 }
 
 /// Compute the contact manifold between a segment and a polygon
-export function b2CollideSegmentAndPolygon(segmentA: b2Segment, polygonB: b2Polygon, xf: b2Transform): b2LocalManifold {
+export function b2CollideSegmentAndPolygon(segmentA: b2Segment, polygonB: ref b2Polygon, xf: b2Transform): b2LocalManifold {
 	let polygonA = b2MakeCapsule(segmentA.point1, segmentA.point2, 0.0);
 	return b2CollidePolygons(polygonA, polygonB, xf);
 }
@@ -1071,7 +1071,7 @@ function b2ClassifyNormal(params: b2ChainSegmentParams, normal: b2Vec2): b2Norma
 /// Compute the contact manifold between a chain segment and a rounded polygon
 export function b2CollideChainSegmentAndPolygon(
 	segmentA: b2ChainSegment,
-	polygonB: b2Polygon,
+	polygonB: ref b2Polygon,
 	xf: b2Transform,
 	cache: ref b2SimplexCache,
 ): b2LocalManifold {

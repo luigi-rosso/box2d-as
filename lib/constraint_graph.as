@@ -7,8 +7,8 @@ import { B2_ASSERT, B2_ASSERT_ENABLED, B2_NULL_INDEX } from "./core";
 import { B2_GRAPH_COLOR_COUNT } from "./constants";
 import { b2MaxInt } from "./math_functions";
 import { b2BodyType, b2Capacity, b2_dynamicBody, b2_staticBody } from "./types";
-import { b2EncodeBodySimIndex } from "./body";
-import { b2ContactSim, b2_contactTouchingFlag, b2_simTouchingFlag } from "./contact";
+import { b2BodyView, b2EncodeBodySimIndex } from "./body";
+import { b2ContactSim, b2ContactSimView, b2_contactTouchingFlag, b2_simTouchingFlag } from "./contact";
 import { b2JointSim } from "./joint";
 import { b2ContactConstraint } from "./contact_solver";
 import { b2World } from "./physics_world";
@@ -144,7 +144,7 @@ function b2AssignJointColor(graph: b2ConstraintGraph, bodyIdA: i32, bodyIdB: i32
 
 // Contacts are always created as non-touching. They get moved into the constraint
 // graph once they are found to be touching.
-export function b2AddContactToGraph(world: b2World, contactSim: ref b2ContactSim, contactId: i32): void {
+export unsafe function b2AddContactToGraph(world: b2World, contactSim: ref b2ContactSim, contactId: i32): void {
 	if (B2_ASSERT_ENABLED) {
 		B2_ASSERT(contactSim.manifold.pointCount > 0);
 		B2_ASSERT((contactSim.simFlags & b2_simTouchingFlag) != 0);
@@ -166,12 +166,16 @@ export function b2AddContactToGraph(world: b2World, contactSim: ref b2ContactSim
 	world.contacts[contactId].colorIndex = colorIndex;
 	world.contacts[contactId].localIndex = color.contactSims.length;
 
-	let newContact = contactSim;
+	let newIndex = color.contactSims.length;
+	color.contactSims.push(contactSim);
+	let colorSims = b2ContactSimView(color.contactSims);
+	ref newContact = colorSims[newIndex];
+	let bodyView = b2BodyView(world.bodies);
 
 	// todo perhaps skip this if the contact is already awake
 
 	if (typeA == b2_staticBody) {
-		newContact.encodedBodySimA = b2EncodeBodySimIndex(world.bodies[bodyIdA]);
+		newContact.encodedBodySimA = b2EncodeBodySimIndex(bodyView[bodyIdA]);
 		newContact.invMassA = 0.0;
 		newContact.invIA = 0.0;
 	} else {
@@ -186,7 +190,7 @@ export function b2AddContactToGraph(world: b2World, contactSim: ref b2ContactSim
 	}
 
 	if (typeB == b2_staticBody) {
-		newContact.encodedBodySimB = b2EncodeBodySimIndex(world.bodies[bodyIdB]);
+		newContact.encodedBodySimB = b2EncodeBodySimIndex(bodyView[bodyIdB]);
 		newContact.invMassB = 0.0;
 		newContact.invIB = 0.0;
 	} else {
@@ -199,8 +203,6 @@ export function b2AddContactToGraph(world: b2World, contactSim: ref b2ContactSim
 		newContact.invMassB = awakeSet.bodySims[localIndex].invMass;
 		newContact.invIB = awakeSet.bodySims[localIndex].invInertia;
 	}
-
-	color.contactSims.push(newContact);
 }
 
 export function b2RemoveContactFromGraph(world: b2World, bodyIdA: i32, bodyIdB: i32, colorIndex: i32, localIndex: i32): void {

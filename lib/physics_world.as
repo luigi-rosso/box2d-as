@@ -925,7 +925,8 @@ function b2Collide(context: b2StepContext): void {
 
 				// Contact sim pointer may have become orphaned due to awake set growth,
 				// so I just need to refresh it.
-				let contactSim = awakeSet.contactSims[localIndex];
+				let awakeSims = b2ContactSimView(awakeSet.contactSims);
+				ref contactSim = awakeSims[localIndex];
 
 				contactSim.simFlags &= ~b2_simStartedTouching;
 

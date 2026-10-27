@@ -120,6 +120,7 @@ import { b2AllocId, b2FreeId } from "./id_pool";
 import { b2Array_RemoveSwap } from "./container";
 import { b2GetWorld, b2GetWorldLocked, b2World } from "./physics_world";
 import {
+	b2ArrayData,
 	b2GetBodyFullId,
 	b2GetBodySim,
 	b2GetBodyState,
@@ -192,7 +193,13 @@ export class b2SensorOverlaps {
 	overlaps: Array<i32> = new Array<i32>();
 }
 
-export function b2GetShapeRadius(shape: b2Shape): f32 {
+// C points into the growable shape Array; this views its buffer as a StaticArray so a shape binds by ref in
+// place, valid until the array grows
+@inline export unsafe function b2ShapeView(shapes: Array<b2Shape>): StaticArray<b2Shape> {
+	return changetype<StaticArray<b2Shape>>(b2ArrayData(shapes));
+}
+
+export function b2GetShapeRadius(shape: ref b2Shape): f32 {
 	switch (shape.type) {
 		case b2_capsuleShape:
 			return shape.capsule.radius;
@@ -933,8 +940,8 @@ export function b2Chain_GetSurfaceMaterial(chainId: b2ChainId, segmentIndex: i32
 	return world.shapes[shapeId].material;
 }
 
-export function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform): b2AABB {
-	let shapes = world.shapes;
+export unsafe function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform): b2AABB {
+	let shapes = b2ShapeView(world.shapes);
 	switch (shapes[shapeId].type) {
 		case b2_capsuleShape:
 			return b2ComputeCapsuleBounds(shapes[shapeId].capsule, xf);
@@ -956,8 +963,8 @@ export function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTran
 // geometry.c in C, which reads b2Shape.
 // Conservative world AABB for a shape, inflated by extra margin. In large world mode this is
 // computed in double and rounded outward so the inflation is not lost far from the origin.
-export function b2ComputeFatShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform, extra: f32): b2AABB {
-	let shapes = world.shapes;
+export unsafe function b2ComputeFatShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform, extra: f32): b2AABB {
+	let shapes = b2ShapeView(world.shapes);
 	switch (shapes[shapeId].type) {
 		case b2_capsuleShape:
 			return b2ComputeCapsuleFatAABB(shapes[shapeId].capsule, xf, extra);

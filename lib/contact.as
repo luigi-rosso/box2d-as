@@ -47,8 +47,8 @@ import {
 	b2_segmentShape,
 	b2_shapeTypeCount,
 } from "./types";
-import { b2ArrayData, b2EncodeBodySimIndex, b2WakeBody, b2_bodyEnableContactRecycling } from "./body";
-import { b2GetShapeRadius } from "./shape";
+import { b2ArrayData, b2BodyView, b2EncodeBodySimIndex, b2WakeBody, b2_bodyEnableContactRecycling } from "./body";
+import { b2GetShapeRadius, b2ShapeView } from "./shape";
 import { b2UnlinkContact } from "./island";
 import { b2GetWorld, b2World } from "./physics_world";
 import { b2_awakeSet, b2_disabledSet, b2_staticSet } from "./solver_set";
@@ -283,8 +283,8 @@ const b2_contactRegistryHasFcn = b2MakeRegistry(false);
 const b2_contactRegistryPrimary = b2MakeRegistry(true);
 
 // The primary manifold function of the registry for shapeA's type against shapeB's type
-function b2ComputeLocalManifold(world: b2World, shapeIdA: i32, shapeIdB: i32, xf: b2Transform, cache: ref b2SimplexCache): b2LocalManifold {
-	let shapes = world.shapes;
+unsafe function b2ComputeLocalManifold(world: b2World, shapeIdA: i32, shapeIdB: i32, xf: b2Transform, cache: ref b2SimplexCache): b2LocalManifold {
+	let shapes = b2ShapeView(world.shapes);
 	let typeA = shapes[shapeIdA].type;
 	let typeB = shapes[shapeIdB].type;
 	switch (typeA) {
@@ -467,8 +467,9 @@ export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): v
 	let contactSim = b2ContactSim();
 	contactSim.contactId = contactId;
 
-	contactSim.encodedBodySimA = b2EncodeBodySimIndex(world.bodies[bodyIdA]);
-	contactSim.encodedBodySimB = b2EncodeBodySimIndex(world.bodies[bodyIdB]);
+	let bodyView = b2BodyView(world.bodies);
+	contactSim.encodedBodySimA = b2EncodeBodySimIndex(bodyView[bodyIdA]);
+	contactSim.encodedBodySimB = b2EncodeBodySimIndex(bodyView[bodyIdB]);
 	contactSim.invMassA = 0.0;
 	contactSim.invIA = 0.0;
 	contactSim.invMassB = 0.0;
@@ -666,8 +667,9 @@ export function b2UpdateContact(
 	let rollingA = shapes[shapeIdA].material.rollingResistance;
 	let rollingB = shapes[shapeIdB].material.rollingResistance;
 	if (rollingA > 0.0 || rollingB > 0.0) {
-		let radiusA = b2GetShapeRadius(shapes[shapeIdA]);
-		let radiusB = b2GetShapeRadius(shapes[shapeIdB]);
+		let shapeView = b2ShapeView(shapes);
+		let radiusA = b2GetShapeRadius(shapeView[shapeIdA]);
+		let radiusB = b2GetShapeRadius(shapeView[shapeIdB]);
 		let maxRadius = b2MaxFloat(radiusA, radiusB);
 		contactSim.rollingResistance = b2MaxFloat(rollingA, rollingB) * maxRadius;
 	} else {

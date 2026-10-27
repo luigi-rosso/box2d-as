@@ -314,7 +314,13 @@ export function b2GetBodyState(world: b2World, bodyId: i32): i32 {
 }
 
 // Encode the body sim index for storage in the contact.
-export function b2EncodeBodySimIndex(body: b2Body): i32 {
+// C points into the growable body Array; this views its buffer as a StaticArray so a body binds by ref in
+// place, valid until the array grows
+@inline export unsafe function b2BodyView(bodies: Array<b2Body>): StaticArray<b2Body> {
+	return changetype<StaticArray<b2Body>>(b2ArrayData(bodies));
+}
+
+export function b2EncodeBodySimIndex(body: ref b2Body): i32 {
 	if (body.setIndex == b2_awakeSet) {
 		return body.localIndex;
 	}
@@ -349,7 +355,8 @@ function b2LimitVelocity(state: ref b2BodyState, maxLinearSpeed: f32): void {
 
 // Refresh the body sim index on associated contact sims.
 export function b2RefreshBodyContactIndices(world: b2World, bodyId: i32): void {
-	let encodedIndex = b2EncodeBodySimIndex(world.bodies[bodyId]);
+	let bodyView = b2BodyView(world.bodies);
+	let encodedIndex = b2EncodeBodySimIndex(bodyView[bodyId]);
 
 	let contactKey = world.bodies[bodyId].headContactKey;
 	while (contactKey != B2_NULL_INDEX) {
