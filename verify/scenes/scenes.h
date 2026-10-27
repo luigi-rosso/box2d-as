@@ -113,6 +113,18 @@ typedef struct SceneDynamicMover
 	bool pogoHit;
 } SceneDynamicMover;
 
+// shared/benchmarks.c RainData; each human's bone bodies and joints at
+// ( groupIndex * group size + human ) * SCENE_BONE_COUNT + bone, the hip's joint null
+typedef struct SceneRain
+{
+	b2BodyId* boneBodies;
+	b2JointId* boneJoints;
+	float gridSize;
+	int gridCount;
+	int columnCount;
+	int columnIndex;
+} SceneRain;
+
 typedef struct Scene
 {
 	const char* name;
@@ -149,6 +161,7 @@ typedef struct Scene
 	SceneVehicle bike;
 	SceneGeometricMover geometricMover;
 	SceneDynamicMover dynamicMover;
+	SceneRain rain;
 } Scene;
 
 int Scene_GetCount( void );

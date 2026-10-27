@@ -25,11 +25,27 @@ enum
 	SCENE_QUERIES,
 	SCENE_MOVER,
 	SCENE_MANY_BODIES,
+	SCENE_LARGE_PYRAMID,
+	SCENE_JOINT_GRID,
+	SCENE_RAIN,
+	SCENE_SMASH,
+	SCENE_SPINNER,
+	SCENE_TUMBLER,
 };
 
 static const char* s_sceneNames[] = {
-	"pyramid", "shape_rain", "chain_car", "joints",	 "dynamic_mover", "churn",
-	"bullets", "sensors",	 "events",	  "queries", "mover",		  "many_bodies",
+	"pyramid",		 "shape_rain", "chain_car", "joints",  "dynamic_mover", "churn",
+	"bullets",		 "sensors",	   "events",	"queries", "mover",			"many_bodies",
+	"large_pyramid", "joint_grid", "rain",		"smash",   "spinner",		"tumbler",
+};
+
+// shared/benchmarks.c release sizes
+enum
+{
+	RAIN_ROW_COUNT = 5,
+	RAIN_COLUMN_COUNT = 40,
+	RAIN_GROUP_SIZE = 5,
+	SPINNER_POINT_COUNT = 360,
 };
 
 // samples/sample_character.cpp CollisionBits; AllBits is ~0u, which zero extends
@@ -839,8 +855,9 @@ static const SceneBoneDef s_boneDefs[SCENE_BONE_COUNT] = {
 };
 
 // Returns the torso body
+// boneSlot >= 0 keeps the bone bodies and joints in scene->rain from that slot, for Scene_DestroyHuman
 static b2BodyId Scene_CreateHuman( Scene* scene, b2Pos position, float scale, float frictionTorque, float hertz,
-								   float dampingRatio, int groupIndex )
+								   float dampingRatio, int groupIndex, int boneSlot )
 {
 	b2WorldId worldId = scene->worldId;
 	b2BodyId bodyIds[SCENE_BONE_COUNT];
@@ -885,6 +902,11 @@ static b2BodyId Scene_CreateHuman( Scene* scene, b2Pos position, float scale, fl
 		bodyDef.position = b2OffsetPos( position, (b2Vec2){ 0.0f, def->positionY * s } );
 		bodyDef.linearDamping = def->linearDamping;
 		bodyIds[i] = Scene_AddBody( scene, &bodyDef );
+		if ( boneSlot >= 0 )
+		{
+			scene->rain.boneBodies[boneSlot + i] = bodyIds[i];
+			scene->rain.boneJoints[boneSlot + i] = b2_nullJointId;
+		}
 
 		b2Capsule capsule = { { 0.0f, def->capsuleY1 * s }, { 0.0f, def->capsuleY2 * s }, def->capsuleRadius * s };
 		b2CreateCapsuleShape( bodyIds[i], &shapeDef, &capsule );
@@ -919,7 +941,11 @@ static b2BodyId Scene_CreateHuman( Scene* scene, b2Pos position, float scale, fl
 		jointDef.dampingRatio = dampingRatio;
 		jointDef.base.drawScale = drawSize;
 
-		b2CreateRevoluteJoint( worldId, &jointDef );
+		b2JointId jointId = b2CreateRevoluteJoint( worldId, &jointDef );
+		if ( boneSlot >= 0 )
+		{
+			scene->rain.boneJoints[boneSlot + i] = jointId;
+		}
 	}
 
 	return bodyIds[1];
@@ -1141,7 +1167,7 @@ static void CreateJoints( Scene* scene )
 	scene->keyJointCount = 14;
 
 	// samples/sample_joints.cpp Ragdoll
-	scene->keyBodies[1] = Scene_CreateHuman( scene, (b2Pos){ 34.0f, 5.0f }, 1.0f, 0.03f, 5.0f, 0.5f, 1 );
+	scene->keyBodies[1] = Scene_CreateHuman( scene, (b2Pos){ 34.0f, 5.0f }, 1.0f, 0.03f, 5.0f, 0.5f, 1, -1 );
 }
 
 static void StepJoints( Scene* scene, int stepIndex )
@@ -3281,6 +3307,532 @@ static void CreateManyBodies( Scene* scene )
 	}
 }
 
+// large_pyramid: shared/benchmarks.c CreateLargePyramid, base 100
+static void CreateLargePyramid( Scene* scene )
+{
+	b2World_EnableSleeping( scene->worldId, false );
+
+	int baseCount = 100;
+
+	{
+		b2BodyDef bodyDef = b2DefaultBodyDef();
+		bodyDef.position = (b2Pos){ 0.0f, -1.0f };
+		b2BodyId groundId = Scene_AddBody( scene, &bodyDef );
+
+		b2Polygon box = b2MakeBox( 100.0f, 1.0f );
+		b2ShapeDef shapeDef = b2DefaultShapeDef();
+		b2CreatePolygonShape( groundId, &shapeDef, &box );
+	}
+
+	b2BodyDef bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+
+	b2ShapeDef shapeDef = b2DefaultShapeDef();
+	shapeDef.density = 1.0f;
+
+	float a = 0.5f;
+	b2Polygon box = b2MakeSquare( a );
+
+	float shift = 1.0f * a;
+
+	for ( int i = 0; i < baseCount; ++i )
+	{
+		float y = ( 2.0f * (float)i + 1.0f ) * shift;
+
+		for ( int j = i; j < baseCount; ++j )
+		{
+			float x = ( (float)i + 1.0f ) * shift + 2.0f * (float)( j - i ) * shift - a * (float)baseCount;
+
+			bodyDef.position = (b2Pos){ x, y };
+
+			b2BodyId bodyId = Scene_AddBody( scene, &bodyDef );
+			b2CreatePolygonShape( bodyId, &shapeDef, &box );
+		}
+	}
+}
+
+// joint_grid: shared/benchmarks.c CreateJointGrid, 100 x 100 circles on revolute joints
+static void CreateJointGrid( Scene* scene )
+{
+	b2WorldId worldId = scene->worldId;
+	b2World_EnableSleeping( worldId, false );
+
+	int N = 100;
+
+	// Allocate to avoid huge stack usage
+	b2BodyId* bodies = malloc( N * N * sizeof( b2BodyId ) );
+	int index = 0;
+
+	b2ShapeDef shapeDef = b2DefaultShapeDef();
+	shapeDef.density = 1.0f;
+	shapeDef.filter.categoryBits = 2;
+	shapeDef.filter.maskBits = ~2u;
+
+	b2Circle circle = { { 0.0f, 0.0f }, 0.4f };
+
+	b2RevoluteJointDef jointDef = b2DefaultRevoluteJointDef();
+	jointDef.base.drawScale = 0.4f;
+
+	b2BodyDef bodyDef = b2DefaultBodyDef();
+
+	for ( int k = 0; k < N; ++k )
+	{
+		for ( int i = 0; i < N; ++i )
+		{
+			float fk = (float)k;
+			float fi = (float)i;
+
+			if ( k >= N / 2 - 3 && k <= N / 2 + 3 && i == 0 )
+			{
+				bodyDef.type = b2_staticBody;
+			}
+			else
+			{
+				bodyDef.type = b2_dynamicBody;
+			}
+
+			bodyDef.position = (b2Pos){ fk, -fi };
+
+			b2BodyId body = Scene_AddBody( scene, &bodyDef );
+
+			b2CreateCircleShape( body, &shapeDef, &circle );
+
+			if ( i > 0 )
+			{
+				jointDef.base.bodyIdA = bodies[index - 1];
+				jointDef.base.bodyIdB = body;
+				jointDef.base.localFrameA.p = (b2Vec2){ 0.0f, -0.5f };
+				jointDef.base.localFrameB.p = (b2Vec2){ 0.0f, 0.5f };
+				b2CreateRevoluteJoint( worldId, &jointDef );
+			}
+
+			if ( k > 0 )
+			{
+				jointDef.base.bodyIdA = bodies[index - N];
+				jointDef.base.bodyIdB = body;
+				jointDef.base.localFrameA.p = (b2Vec2){ 0.5f, 0.0f };
+				jointDef.base.localFrameB.p = (b2Vec2){ -0.5f, 0.0f };
+				b2CreateRevoluteJoint( worldId, &jointDef );
+			}
+
+			bodies[index++] = body;
+		}
+	}
+
+	free( bodies );
+}
+
+// rain: shared/benchmarks.c CreateRain and StepRain, 5 rows of 40 columns of 5 humans dropped onto
+// rows of boxes, then from step 320 the oldest column replaced every 8 steps
+static void CreateRain( Scene* scene )
+{
+	int boneCount = RAIN_ROW_COUNT * RAIN_COLUMN_COUNT * RAIN_GROUP_SIZE * SCENE_BONE_COUNT;
+	scene->rain.boneBodies = malloc( boneCount * sizeof( b2BodyId ) );
+	scene->rain.boneJoints = malloc( boneCount * sizeof( b2JointId ) );
+
+	scene->rain.gridSize = 0.5f;
+	scene->rain.gridCount = 500;
+
+	{
+		b2BodyDef bodyDef = b2DefaultBodyDef();
+		b2BodyId groundId = Scene_AddBody( scene, &bodyDef );
+
+		b2ShapeDef shapeDef = b2DefaultShapeDef();
+		float y = 0.0f;
+		float width = scene->rain.gridSize;
+		float height = scene->rain.gridSize;
+
+		for ( int i = 0; i < RAIN_ROW_COUNT; ++i )
+		{
+			float x = -0.5f * (float)scene->rain.gridCount * scene->rain.gridSize;
+			for ( int j = 0; j <= scene->rain.gridCount; ++j )
+			{
+				b2Polygon box = b2MakeOffsetBox( 0.5f * width, 0.5f * height, (b2Vec2){ x, y }, b2Rot_identity );
+				b2CreatePolygonShape( groundId, &shapeDef, &box );
+
+				x += scene->rain.gridSize;
+			}
+
+			y += 45.0f;
+		}
+	}
+
+	scene->rain.columnCount = 0;
+	scene->rain.columnIndex = 0;
+}
+
+// shared/benchmarks.c CreateGroup
+static void Scene_CreateRainGroup( Scene* scene, int rowIndex, int columnIndex )
+{
+	int groupIndex = rowIndex * RAIN_COLUMN_COUNT + columnIndex;
+
+	float span = (float)scene->rain.gridCount * scene->rain.gridSize;
+	float groupDistance = 1.0f * span / (float)RAIN_COLUMN_COUNT;
+
+	b2Pos position;
+	position.x = -0.5f * span + groupDistance * ( (float)columnIndex + 0.5f );
+	position.y = 40.0f + 45.0f * (float)rowIndex;
+
+	float scale = 1.0f;
+	float jointFriction = 0.05f;
+	float jointHertz = 5.0f;
+	float jointDamping = 0.5f;
+
+	for ( int i = 0; i < RAIN_GROUP_SIZE; ++i )
+	{
+		int boneSlot = ( groupIndex * RAIN_GROUP_SIZE + i ) * SCENE_BONE_COUNT;
+		Scene_CreateHuman( scene, position, scale, jointFriction, jointHertz, jointDamping, i + 1, boneSlot );
+		position.x += 0.5f;
+	}
+}
+
+// shared/human.c DestroyHuman
+static void Scene_DestroyHuman( Scene* scene, int boneSlot )
+{
+	for ( int i = 0; i < SCENE_BONE_COUNT; ++i )
+	{
+		if ( B2_IS_NULL( scene->rain.boneJoints[boneSlot + i] ) )
+		{
+			continue;
+		}
+
+		b2DestroyJoint( scene->rain.boneJoints[boneSlot + i] );
+		scene->rain.boneJoints[boneSlot + i] = b2_nullJointId;
+	}
+
+	for ( int i = 0; i < SCENE_BONE_COUNT; ++i )
+	{
+		if ( B2_IS_NULL( scene->rain.boneBodies[boneSlot + i] ) )
+		{
+			continue;
+		}
+
+		b2DestroyBody( scene->rain.boneBodies[boneSlot + i] );
+		scene->rain.boneBodies[boneSlot + i] = b2_nullBodyId;
+	}
+}
+
+// shared/benchmarks.c DestroyGroup
+static void Scene_DestroyRainGroup( Scene* scene, int rowIndex, int columnIndex )
+{
+	int groupIndex = rowIndex * RAIN_COLUMN_COUNT + columnIndex;
+
+	for ( int i = 0; i < RAIN_GROUP_SIZE; ++i )
+	{
+		Scene_DestroyHuman( scene, ( groupIndex * RAIN_GROUP_SIZE + i ) * SCENE_BONE_COUNT );
+	}
+}
+
+static void StepRain( Scene* scene, int stepIndex )
+{
+	int delay = 0x7;
+
+	if ( ( stepIndex & delay ) == 0 )
+	{
+		if ( scene->rain.columnCount < RAIN_COLUMN_COUNT )
+		{
+			for ( int i = 0; i < RAIN_ROW_COUNT; ++i )
+			{
+				Scene_CreateRainGroup( scene, i, scene->rain.columnCount );
+			}
+
+			scene->rain.columnCount += 1;
+		}
+		else
+		{
+			for ( int i = 0; i < RAIN_ROW_COUNT; ++i )
+			{
+				Scene_DestroyRainGroup( scene, i, scene->rain.columnIndex );
+				Scene_CreateRainGroup( scene, i, scene->rain.columnIndex );
+			}
+
+			scene->rain.columnIndex = ( scene->rain.columnIndex + 1 ) % RAIN_COLUMN_COUNT;
+		}
+	}
+
+	Scene_WorldStep( scene );
+}
+
+// smash: shared/benchmarks.c CreateSmash, a heavy box into a sleeping 120 x 80 block, no gravity
+static void CreateSmash( Scene* scene )
+{
+	b2World_SetGravity( scene->worldId, b2Vec2_zero );
+
+	{
+		b2Polygon box = b2MakeBox( 4.0f, 4.0f );
+
+		b2BodyDef bodyDef = b2DefaultBodyDef();
+		bodyDef.type = b2_dynamicBody;
+		bodyDef.position = (b2Pos){ -20.0f, 0.0f };
+		bodyDef.linearVelocity = (b2Vec2){ 40.0f, 0.0f };
+		b2BodyId bodyId = Scene_AddBody( scene, &bodyDef );
+
+		b2ShapeDef shapeDef = b2DefaultShapeDef();
+		shapeDef.density = 8.0f;
+		b2CreatePolygonShape( bodyId, &shapeDef, &box );
+	}
+
+	float d = 0.4f;
+	b2Polygon box = b2MakeSquare( 0.5f * d );
+
+	b2BodyDef bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+	bodyDef.isAwake = false;
+
+	b2ShapeDef shapeDef = b2DefaultShapeDef();
+
+	int columns = 120;
+	int rows = 80;
+
+	for ( int i = 0; i < columns; ++i )
+	{
+		for ( int j = 0; j < rows; ++j )
+		{
+			bodyDef.position.x = (float)i * d + 30.0f;
+			bodyDef.position.y = ( (float)j - (float)rows / 2.0f ) * d;
+			b2BodyId bodyId = Scene_AddBody( scene, &bodyDef );
+			b2CreatePolygonShape( bodyId, &shapeDef, &box );
+		}
+	}
+}
+
+// spinner: shared/benchmarks.c CreateSpinner and StepSpinner, a motorized paddle in a loop chain
+// stirring 6076 capsules, circles and boxes. keyJoints: 0 spinner
+static void CreateSpinner( Scene* scene )
+{
+	b2WorldId worldId = scene->worldId;
+
+	b2BodyId groundId;
+	{
+		b2BodyDef bodyDef = b2DefaultBodyDef();
+		groundId = Scene_AddBody( scene, &bodyDef );
+
+		b2Vec2 points[SPINNER_POINT_COUNT];
+
+		b2Rot q = b2MakeRot( -2.0f * B2_PI / (float)SPINNER_POINT_COUNT );
+		b2Vec2 p = { 40.0f, 0.0f };
+		for ( int i = 0; i < SPINNER_POINT_COUNT; ++i )
+		{
+			points[i] = (b2Vec2){ p.x, p.y + 32.0f };
+			p = b2RotateVector( q, p );
+		}
+
+		b2SurfaceMaterial material = { 0 };
+		material.friction = 0.1f;
+
+		b2ChainDef chainDef = b2DefaultChainDef();
+		chainDef.points = points;
+		chainDef.pointCount = SPINNER_POINT_COUNT;
+		chainDef.isLoop = true;
+		chainDef.materials = &material;
+		chainDef.materialCount = 1;
+
+		b2CreateChain( groundId, &chainDef );
+	}
+
+	{
+		b2BodyDef bodyDef = b2DefaultBodyDef();
+		bodyDef.type = b2_dynamicBody;
+		bodyDef.position = (b2Pos){ 0.0f, 12.0f };
+		bodyDef.enableSleep = false;
+
+		b2BodyId spinnerId = Scene_AddBody( scene, &bodyDef );
+
+		b2Polygon box = b2MakeRoundedBox( 0.4f, 20.0f, 0.2f );
+		b2ShapeDef shapeDef = b2DefaultShapeDef();
+		shapeDef.material.friction = 0.0f;
+		b2CreatePolygonShape( spinnerId, &shapeDef, &box );
+
+		float motorSpeed = 5.0f;
+		float maxMotorTorque = FLT_MAX;
+		b2RevoluteJointDef jointDef = b2DefaultRevoluteJointDef();
+		jointDef.base.bodyIdA = groundId;
+		jointDef.base.bodyIdB = spinnerId;
+		jointDef.base.localFrameA.p = b2Body_GetLocalPoint( groundId, bodyDef.position );
+		jointDef.enableMotor = true;
+		jointDef.motorSpeed = motorSpeed;
+		jointDef.maxMotorTorque = maxMotorTorque;
+
+		scene->keyJoints[0] = b2CreateRevoluteJoint( worldId, &jointDef );
+	}
+
+	b2Capsule capsule = { { -0.25f, 0.0f }, { 0.25f, 0.0f }, 0.25f };
+	b2Circle circle = { { 0.0f, 0.0f }, 0.35f };
+	b2Polygon square = b2MakeSquare( 0.35f );
+
+	b2BodyDef bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+	b2ShapeDef shapeDef = b2DefaultShapeDef();
+	shapeDef.material.friction = 0.1f;
+	shapeDef.material.restitution = 0.1f;
+	shapeDef.density = 0.25f;
+
+	int bodyCount = 2 * 3038;
+
+	float x = -23.0f;
+	float y = 2.0f;
+	for ( int i = 0; i < bodyCount; ++i )
+	{
+		bodyDef.position = (b2Pos){ x, y };
+		b2BodyId bodyId = Scene_AddBody( scene, &bodyDef );
+
+		int remainder = i % 3;
+		if ( remainder == 0 )
+		{
+			b2CreateCapsuleShape( bodyId, &shapeDef, &capsule );
+		}
+		else if ( remainder == 1 )
+		{
+			b2CreateCircleShape( bodyId, &shapeDef, &circle );
+		}
+		else if ( remainder == 2 )
+		{
+			b2CreatePolygonShape( bodyId, &shapeDef, &square );
+		}
+
+		x += 0.5f;
+
+		if ( x >= 23.0f )
+		{
+			x = -23.0f;
+			y += 0.5f;
+		}
+	}
+}
+
+// StepSpinner's angle, read before the step as the benchmark does
+static void StepSpinner( Scene* scene )
+{
+	Probe_Float( scene, b2RevoluteJoint_GetCurrentAngle( scene->keyJoints[0] ) );
+	Scene_WorldStep( scene );
+}
+
+// tumbler: shared/benchmarks.c CreateTumbler, a motorized box of four walls turning 2025 small boxes
+static void CreateTumbler( Scene* scene )
+{
+	b2WorldId worldId = scene->worldId;
+
+	b2BodyId groundId;
+	{
+		b2BodyDef bodyDef = b2DefaultBodyDef();
+		groundId = Scene_AddBody( scene, &bodyDef );
+	}
+
+	{
+		b2BodyDef bodyDef = b2DefaultBodyDef();
+		bodyDef.type = b2_dynamicBody;
+		bodyDef.position = (b2Pos){ 0.0f, 10.0f };
+		b2BodyId bodyId = Scene_AddBody( scene, &bodyDef );
+
+		b2ShapeDef shapeDef = b2DefaultShapeDef();
+		shapeDef.density = 50.0f;
+
+		b2Polygon polygon;
+		polygon = b2MakeOffsetBox( 0.5f, 10.0f, (b2Vec2){ 10.0f, 0.0f }, b2Rot_identity );
+		b2CreatePolygonShape( bodyId, &shapeDef, &polygon );
+		polygon = b2MakeOffsetBox( 0.5f, 10.0f, (b2Vec2){ -10.0f, 0.0f }, b2Rot_identity );
+		b2CreatePolygonShape( bodyId, &shapeDef, &polygon );
+		polygon = b2MakeOffsetBox( 10.0f, 0.5f, (b2Vec2){ 0.0f, 10.0f }, b2Rot_identity );
+		b2CreatePolygonShape( bodyId, &shapeDef, &polygon );
+		polygon = b2MakeOffsetBox( 10.0f, 0.5f, (b2Vec2){ 0.0f, -10.0f }, b2Rot_identity );
+		b2CreatePolygonShape( bodyId, &shapeDef, &polygon );
+
+		float motorSpeed = 25.0f;
+
+		b2RevoluteJointDef jointDef = b2DefaultRevoluteJointDef();
+		jointDef.base.bodyIdA = groundId;
+		jointDef.base.bodyIdB = bodyId;
+		jointDef.base.localFrameA.p = (b2Vec2){ 0.0f, 10.0f };
+		jointDef.base.localFrameB.p = (b2Vec2){ 0.0f, 0.0f };
+		jointDef.motorSpeed = ( B2_PI / 180.0f ) * motorSpeed;
+		jointDef.maxMotorTorque = 1e8f;
+		jointDef.enableMotor = true;
+
+		b2CreateRevoluteJoint( worldId, &jointDef );
+	}
+
+	int gridCount = 45;
+
+	b2Polygon polygon = b2MakeBox( 0.125f, 0.125f );
+	b2BodyDef bodyDef = b2DefaultBodyDef();
+	bodyDef.type = b2_dynamicBody;
+	b2ShapeDef shapeDef = b2DefaultShapeDef();
+
+	float y = -0.2f * (float)gridCount + 10.0f;
+	for ( int i = 0; i < gridCount; ++i )
+	{
+		float x = -0.2f * (float)gridCount;
+
+		for ( int j = 0; j < gridCount; ++j )
+		{
+			bodyDef.position = (b2Pos){ x, y };
+			b2BodyId bodyId = Scene_AddBody( scene, &bodyDef );
+
+			b2CreatePolygonShape( bodyId, &shapeDef, &polygon );
+
+			x += 0.4f;
+		}
+
+		y += 0.4f;
+	}
+}
+
+// The benchmarks' world capacities at release sizes; zero for the other scenes
+static b2Capacity Scene_GetCapacity( int index )
+{
+	b2Capacity c = { 0 };
+	switch ( index )
+	{
+		case SCENE_LARGE_PYRAMID:
+			c.staticShapeCount = 1;
+			c.dynamicShapeCount = 5600;
+			c.staticBodyCount = 1;
+			c.dynamicBodyCount = 5600;
+			c.contactCount = 19000;
+			c.arenaByteCount = 2800 * 1024;
+			break;
+		case SCENE_JOINT_GRID:
+			c.staticShapeCount = 7;
+			c.dynamicShapeCount = 11000;
+			c.staticBodyCount = 7;
+			c.dynamicBodyCount = 11000;
+			c.arenaByteCount = 120 * 1024;
+			break;
+		case SCENE_RAIN:
+			c.staticShapeCount = 2800;
+			c.dynamicShapeCount = 15000;
+			c.staticBodyCount = 1;
+			c.dynamicBodyCount = 13000;
+			c.contactCount = 29000;
+			c.arenaByteCount = 1900 * 1024;
+			break;
+		case SCENE_SMASH:
+			c.dynamicShapeCount = 11000;
+			c.dynamicBodyCount = 11000;
+			c.contactCount = 55000;
+			c.arenaByteCount = 4900 * 1024;
+			break;
+		case SCENE_SPINNER:
+			c.staticShapeCount = 400;
+			c.dynamicShapeCount = 6700;
+			c.staticBodyCount = 1;
+			c.dynamicBodyCount = 6700;
+			c.contactCount = 41000;
+			c.arenaByteCount = 4600 * 1024;
+			break;
+		case SCENE_TUMBLER:
+			c.dynamicShapeCount = 2300;
+			c.staticBodyCount = 1;
+			c.dynamicBodyCount = 2300;
+			c.contactCount = 13000;
+			c.arenaByteCount = 1100 * 1024;
+			break;
+		default:
+			break;
+	}
+	return c;
+}
+
 bool Scene_Create( Scene* scene, const char* name, int workerCount )
 {
 	memset( scene, 0, sizeof( Scene ) );
@@ -3304,6 +3856,7 @@ bool Scene_Create( Scene* scene, const char* name, int workerCount )
 	// Without task callbacks one worker runs serially and more use C's internal scheduler
 	b2WorldDef worldDef = b2DefaultWorldDef();
 	worldDef.workerCount = workerCount;
+	worldDef.capacity = Scene_GetCapacity( index );
 	scene->worldId = b2CreateWorld( &worldDef );
 
 	switch ( index )
@@ -3343,6 +3896,24 @@ bool Scene_Create( Scene* scene, const char* name, int workerCount )
 			break;
 		case SCENE_MANY_BODIES:
 			CreateManyBodies( scene );
+			break;
+		case SCENE_LARGE_PYRAMID:
+			CreateLargePyramid( scene );
+			break;
+		case SCENE_JOINT_GRID:
+			CreateJointGrid( scene );
+			break;
+		case SCENE_RAIN:
+			CreateRain( scene );
+			break;
+		case SCENE_SMASH:
+			CreateSmash( scene );
+			break;
+		case SCENE_SPINNER:
+			CreateSpinner( scene );
+			break;
+		case SCENE_TUMBLER:
+			CreateTumbler( scene );
 			break;
 		default:
 			break;
@@ -3387,6 +3958,12 @@ void Scene_Step( Scene* scene, int stepIndex )
 		case SCENE_MOVER:
 			StepMover( scene, stepIndex );
 			break;
+		case SCENE_RAIN:
+			StepRain( scene, stepIndex );
+			break;
+		case SCENE_SPINNER:
+			StepSpinner( scene );
+			break;
 		default:
 			Scene_WorldStep( scene );
 			break;
@@ -3398,5 +3975,7 @@ void Scene_Destroy( Scene* scene )
 	b2DestroyWorld( scene->worldId );
 	free( scene->bodies );
 	free( scene->probes );
+	free( scene->rain.boneBodies );
+	free( scene->rain.boneJoints );
 	memset( scene, 0, sizeof( Scene ) );
 }

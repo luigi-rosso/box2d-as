@@ -15,6 +15,7 @@ import { readTrajectory, diff } from './scenes/dump.mjs';
 export const sceneNames = [
 	'pyramid', 'shape_rain', 'chain_car', 'joints', 'dynamic_mover', 'churn',
 	'bullets', 'sensors', 'events', 'queries', 'mover', 'many_bodies',
+	'large_pyramid', 'joint_grid', 'rain', 'smash', 'spinner', 'tumbler',
 ];
 
 const args = process.argv.slice( 2 );

@@ -15,7 +15,8 @@ wasm=${WASM:-$out/as/traj.wasm}
 
 scenes=("$@")
 if [ ${#scenes[@]} -eq 0 ]; then
-	scenes=(pyramid shape_rain chain_car joints dynamic_mover churn bullets sensors events queries mover many_bodies)
+	scenes=(pyramid shape_rain chain_car joints dynamic_mover churn bullets sensors events queries mover many_bodies
+		large_pyramid joint_grid rain smash spinner tumbler)
 fi
 
 # Steps each scene records; long enough for its script to finish and its bodies to settle
@@ -33,6 +34,12 @@ steps_for() {
 		queries) echo 300 ;;
 		mover) echo 900 ;;
 		many_bodies) echo 100 ;;
+		large_pyramid) echo 100 ;;
+		joint_grid) echo 100 ;;
+		rain) echo 360 ;;
+		smash) echo 120 ;;
+		spinner) echo 300 ;;
+		tumbler) echo 200 ;;
 		*) echo 300 ;;
 	esac
 }
