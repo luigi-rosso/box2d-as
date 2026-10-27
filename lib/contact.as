@@ -47,7 +47,7 @@ import {
 	b2_segmentShape,
 	b2_shapeTypeCount,
 } from "./types";
-import { b2EncodeBodySimIndex, b2WakeBody, b2_bodyEnableContactRecycling } from "./body";
+import { b2ArrayData, b2EncodeBodySimIndex, b2WakeBody, b2_bodyEnableContactRecycling } from "./body";
 import { b2GetShapeRadius } from "./shape";
 import { b2UnlinkContact } from "./island";
 import { b2GetWorld, b2World } from "./physics_world";
@@ -171,6 +171,12 @@ export struct b2ContactSim {
 	tangentSpeed: f32 = 0;
 
 	cache: b2SimplexCache = b2SimplexCache();
+}
+
+// C points into a growable Array of contact sims; this views the Array's buffer as a StaticArray so an element
+// binds by ref in place, valid until the array grows
+@inline export unsafe function b2ContactSimView(sims: Array<b2ContactSim>): StaticArray<b2ContactSim> {
+	return changetype<StaticArray<b2ContactSim>>(b2ArrayData(sims));
 }
 
 @inline export function b2MixFriction(frictionA: f32, frictionB: f32): f32 {

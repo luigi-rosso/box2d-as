@@ -137,6 +137,7 @@ import { b2Joint } from "./joint";
 import {
 	b2Contact,
 	b2ContactSim,
+	b2ContactSimView,
 	b2DestroyContact,
 	b2UpdateContact,
 	b2_contactEnableContactEvents,
@@ -607,7 +608,7 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 
 	let spanStart = spans[spanIndex].start;
 	let spanEnd = spans[spanIndex + 1].start;
-	let spanBase = spans[spanIndex].contacts;
+	let spanBase = b2ContactSimView(spans[spanIndex].contacts);
 
 	let recycleDistance = world.contactRecycleDistance;
 	let speculativeDistance = B2_SPECULATIVE_DISTANCE();
@@ -618,11 +619,10 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 			spanIndex += 1;
 			spanStart = spans[spanIndex].start;
 			spanEnd = spans[spanIndex + 1].start;
-			spanBase = spans[spanIndex].contacts;
+			spanBase = b2ContactSimView(spans[spanIndex].contacts);
 		}
 
-		let localIndex = contactIndex - spanStart;
-		let contactSim = spanBase[localIndex];
+		ref contactSim = spanBase[contactIndex - spanStart];
 
 		let contactId = contactSim.contactId;
 		let shapeIdA = contactSim.shapeIdA;
@@ -633,7 +633,6 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 		if (overlap == false) {
 			contactSim.simFlags |= b2_simDisjoint;
 			contactSim.simFlags &= ~b2_simTouchingFlag;
-			spanBase[localIndex].simFlags = contactSim.simFlags;
 			b2SetBit(taskContext.contactStateBitSet, <u32>contactId);
 			continue;
 		}
@@ -707,8 +706,6 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 
 				taskContext.recycledContactCount += 1;
 
-				spanBase[localIndex] = contactSim;
-
 				// Contact is recycled. This also skips updating other aspects of the contact
 				// such as material parameters.
 				continue;
@@ -743,8 +740,6 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 				mp.baseSeparation = mp.separation;
 			}
 		}
-
-		spanBase[localIndex] = contactSim;
 	}
 }
 
