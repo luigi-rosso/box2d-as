@@ -314,6 +314,12 @@ export function b2GetBodyState(world: b2World, bodyId: i32): i32 {
 }
 
 // Encode the body sim index for storage in the contact.
+// C points into a growable Array of body sims; this views its buffer as a StaticArray so a sim binds by ref in
+// place, valid until the array grows
+@inline export unsafe function b2BodySimView(sims: Array<b2BodySim>): StaticArray<b2BodySim> {
+	return changetype<StaticArray<b2BodySim>>(b2ArrayData(sims));
+}
+
 // C points into the growable body Array; this views its buffer as a StaticArray so a body binds by ref in
 // place, valid until the array grows
 @inline export unsafe function b2BodyView(bodies: Array<b2Body>): StaticArray<b2Body> {

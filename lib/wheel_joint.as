@@ -23,7 +23,7 @@ import {
 } from "./math_functions";
 import { b2JointId } from "./id";
 import { b2_wheelJoint } from "./types";
-import { b2BodyState, b2GetBodyTransform, b2StateAddress, b2_dynamicFlag } from "./body";
+import { b2BodyState, b2GetBodyTransform, b2StateAddress, b2_dynamicFlag, b2BodySimView } from "./body";
 import { b2_awakeSet } from "./solver_set";
 import { b2MakeSoft, b2StepContext } from "./solver";
 import { b2GetWorld, b2World } from "./physics_world";
@@ -227,8 +227,10 @@ export function b2PrepareWheelJoint(base: ref b2JointSim, context: b2StepContext
 	let localIndexA = world.bodies[idA].localIndex;
 	let localIndexB = world.bodies[idB].localIndex;
 
-	let bodySimA = setA.bodySims[localIndexA];
-	let bodySimB = setB.bodySims[localIndexB];
+	let simsA = b2BodySimView(setA.bodySims);
+	let simsB = b2BodySimView(setB.bodySims);
+	ref bodySimA = simsA[localIndexA];
+	ref bodySimB = simsB[localIndexB];
 
 	let mA: f32 = bodySimA.invMass;
 	let iA: f32 = bodySimA.invInertia;
