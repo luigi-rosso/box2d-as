@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Erin Catto
 // SPDX-License-Identifier: MIT
 // Trajectory driver, the twin of verify/scenes/traj.c. create() builds a scene, step() runs one
-// Scene_Step and writes that step's record (step index, body count, counters, bodies) into a word
-// buffer the host reads through recordPointer() and recordLength() before the next frame boundary.
-// The host writes the header.
+// Scene_Step and writes that step's record (step index, body count, counters, bodies, probe count,
+// probes) into a word buffer the host reads through recordPointer() and recordLength() before the
+// next frame boundary. The host writes the header.
 
 import { Scene, Scene_Create, Scene_GetCount, Scene_GetName, Scene_Step } from "./scenes";
 import {
@@ -119,7 +119,7 @@ function WriteBody(index: i32, bodyId: b2BodyId): void {
 	let p = b2Body_GetPosition(bodyId);
 	let q = b2Body_GetRotation(bodyId);
 	let v = b2Body_GetLinearVelocity(bodyId);
-	let omega = b2Body_GetAngularVelocity(bodyId);
+	let omega: f32 = b2Body_GetAngularVelocity(bodyId);
 
 	PushFloat(p.x);
 	PushFloat(p.y);
@@ -160,6 +160,11 @@ export function step(stepIndex: i32): void {
 	WriteCounters(g_scene.worldId);
 	for (let i = 0; i < g_scene.bodyCount; ++i) {
 		WriteBody(i, g_scene.bodies[i]);
+	}
+	let probes = g_scene.probes;
+	PushInt(probes.length);
+	for (let i = 0; i < probes.length; ++i) {
+		PushWord(probes[i]);
 	}
 }
 
