@@ -4,3 +4,5 @@ verify/vectors/
 verify/recordings/
 bench/*/out/
 bench/native/bin/
+verify/scenes/out/
+verify/scenes/bin/
