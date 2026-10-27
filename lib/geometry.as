@@ -438,6 +438,7 @@ export function b2ComputePolygonMass(shape: b2Polygon, density: f32): b2MassData
 // The four fat AABB helpers are static in C. They are exported for b2ComputeFatShapeAABB, which
 // takes a b2Shape and so lives in lib/shape.as.
 
+@inline
 export function b2ComputeCircleFatAABB(shape: b2Circle, xf: b2WorldTransform, extra: f32): b2AABB {
 	let c = b2TransformWorldPoint(xf, shape.center);
 	let r = <f64>shape.radius + <f64>extra;
@@ -448,6 +449,7 @@ export function b2ComputeCircleFatAABB(shape: b2Circle, xf: b2WorldTransform, ex
 	return aabb;
 }
 
+@inline
 export function b2ComputeCapsuleFatAABB(shape: b2Capsule, xf: b2WorldTransform, extra: f32): b2AABB {
 	let v1 = b2TransformWorldPoint(xf, shape.center1);
 	let v2 = b2TransformWorldPoint(xf, shape.center2);
@@ -459,6 +461,7 @@ export function b2ComputeCapsuleFatAABB(shape: b2Capsule, xf: b2WorldTransform, 
 	return aabb;
 }
 
+@inline
 export function b2ComputePolygonFatAABB(shape: ref b2Polygon, xf: b2WorldTransform, extra: f32): b2AABB {
 	if (B2_ASSERT_ENABLED) B2_ASSERT(shape.count > 0);
 	let v = b2TransformWorldPoint(xf, shape.vertices[0]);
@@ -483,6 +486,7 @@ export function b2ComputePolygonFatAABB(shape: ref b2Polygon, xf: b2WorldTransfo
 	return aabb;
 }
 
+@inline
 export function b2ComputeSegmentFatAABB(shape: b2Segment, xf: b2WorldTransform, extra: f32): b2AABB {
 	let v1 = b2TransformWorldPoint(xf, shape.point1);
 	let v2 = b2TransformWorldPoint(xf, shape.point2);

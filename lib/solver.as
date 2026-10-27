@@ -842,177 +842,194 @@ function b2LogUnstableBody(world: b2World, bodyId: i32): void {
 }
 
 // Implements b2ParallelForCallback
-unsafe function b2FinalizeBodiesTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
-	let world = stepContext.world;
+// One body of b2FinalizeBodiesTask. It makes no calls, so WAMR AOT keeps the memory base in registers across its
+// stores. The caller logs an unstable body and runs the continuous solve, which reads only this body and static data.
+const b2_finalizeUnstable: i32 = 1;
+const b2_finalizeContinuous: i32 = 2;
+
+@noinline
+unsafe function b2FinalizeBody(world: b2World, stepContext: b2StepContext, taskContext: b2TaskContext, simIndex: i32): i32 {
 	let bodies = b2ArrayData(world.bodies);
 	let states = b2ArrayData(stepContext.states);
 	let sims = b2ArrayData(stepContext.sims);
-
-	B2_ASSERT(endIndex <= world.bodyMoveEvents.length);
-
+	let moveEvents = b2ArrayData(world.bodyMoveEvents);
 	let enableSleep = world.enableSleep;
 	let enableContinuous = world.enableContinuous;
 	let timeStep = stepContext.dt;
 	let invTimeStep = stepContext.inv_dt;
 	let worldId = world.worldId;
-
-	// The body move event array should already have the correct size
-	let moveEvents = b2ArrayData(world.bodyMoveEvents);
-
-	let taskContext = world.taskContexts[workerIndex];
 	let enlargedSimBitSet = taskContext.enlargedSimBitSet;
 	let awakeIslandBitSet = taskContext.awakeIslandBitSet;
-
 	let speculativeDistance = B2_SPECULATIVE_DISTANCE();
+	let result = 0;
 
-	for (let simIndex = startIndex; simIndex < endIndex; ++simIndex) {
-		let state = states + <usize>simIndex * sizeof<b2BodyState>();
-		let sim = sims + <usize>simIndex * sizeof<b2BodySim>();
+	let state = states + <usize>simIndex * sizeof<b2BodyState>();
+	let sim = sims + <usize>simIndex * sizeof<b2BodySim>();
 
-		let v = load<b2Vec2>(state + BS_V);
-		let w = load<f32>(state + BS_W);
-		let simBodyId = load<i32>(sim + SIM_BODYID);
+	let v = load<b2Vec2>(state + BS_V);
+	let w = load<f32>(state + BS_W);
+	let simBodyId = load<i32>(sim + SIM_BODYID);
 
-		if (b2IsValidVec2(v) == false || b2IsValidFloat(w) == false) {
-			b2LogUnstableBody(world, simBodyId);
-		}
+	if (b2IsValidVec2(v) == false || b2IsValidFloat(w) == false) {
+		result |= b2_finalizeUnstable;
+	}
 
-		B2_ASSERT(b2IsValidVec2(v));
-		B2_ASSERT(b2IsValidFloat(w));
+	B2_ASSERT(b2IsValidVec2(v));
+	B2_ASSERT(b2IsValidFloat(w));
 
-		let deltaPosition = load<b2Vec2>(state + BS_DP);
-		let deltaRotation = load<b2Rot>(state + BS_DQ);
-		let center = b2OffsetPos(load<b2Vec2>(sim + SIM_CENTER), deltaPosition);
-		let q = b2NormalizeRot(b2MulRot(deltaRotation, load<b2Rot>(sim + SIM_Q)));
-		store<b2Vec2>(sim + SIM_CENTER, center);
-		store<b2Rot>(sim + SIM_Q, q);
+	let deltaPosition = load<b2Vec2>(state + BS_DP);
+	let deltaRotation = load<b2Rot>(state + BS_DQ);
+	let center = b2OffsetPos(load<b2Vec2>(sim + SIM_CENTER), deltaPosition);
+	let q = b2NormalizeRot(b2MulRot(deltaRotation, load<b2Rot>(sim + SIM_Q)));
+	store<b2Vec2>(sim + SIM_CENTER, center);
+	store<b2Rot>(sim + SIM_Q, q);
 
-		// Use the velocity of the farthest point on the body to account for rotation.
-		let maxExtent = load<f32>(sim + SIM_MAXEXTENT);
-		let maxVelocity = b2Length(v) + b2AbsFloat(w) * maxExtent;
+	// Use the velocity of the farthest point on the body to account for rotation.
+	let maxExtent = load<f32>(sim + SIM_MAXEXTENT);
+	let maxVelocity = b2Length(v) + b2AbsFloat(w) * maxExtent;
 
-		// Sleep needs to observe position correction as well as true velocity.
-		let maxDeltaPosition = b2Length(deltaPosition) + b2AbsFloat(deltaRotation.s) * maxExtent;
+	// Sleep needs to observe position correction as well as true velocity.
+	let maxDeltaPosition = b2Length(deltaPosition) + b2AbsFloat(deltaRotation.s) * maxExtent;
 
-		// Position correction is not as important for sleep as true velocity.
-		let positionSleepFactor: f32 = 0.5;
-		let sleepVelocity = b2MaxFloat(maxVelocity, positionSleepFactor * invTimeStep * maxDeltaPosition);
+	// Position correction is not as important for sleep as true velocity.
+	let positionSleepFactor: f32 = 0.5;
+	let sleepVelocity = b2MaxFloat(maxVelocity, positionSleepFactor * invTimeStep * maxDeltaPosition);
 
-		// reset state deltas
-		store<b2Vec2>(state + BS_DP, b2Vec2_zero);
-		store<b2Rot>(state + BS_DQ, b2Rot_identity);
+	// reset state deltas
+	store<b2Vec2>(state + BS_DP, b2Vec2_zero);
+	store<b2Rot>(state + BS_DQ, b2Rot_identity);
 
-		let transformP = b2OffsetPos(center, b2Neg(b2RotateVector(q, load<b2Vec2>(sim + SIM_LOCALCENTER))));
-		store<b2Vec2>(sim + SIM_P, transformP);
+	let transformP = b2OffsetPos(center, b2Neg(b2RotateVector(q, load<b2Vec2>(sim + SIM_LOCALCENTER))));
+	store<b2Vec2>(sim + SIM_P, transformP);
 
-		// cache miss here, however I need the shape list below
-		let body = bodies + <usize>simBodyId * sizeof<b2Body>();
-		store<i32>(body + B_BODYMOVEINDEX, simIndex);
-		let moveEvent = moveEvents + <usize>simIndex * sizeof<b2BodyMoveEvent>();
-		store<b2Transform>(moveEvent + ME_TRANSFORM, b2Transform(transformP, q));
-		store<b2BodyId>(moveEvent + ME_BODYID, b2BodyId(simBodyId + 1, worldId, load<u16>(body + B_GENERATION)));
-		store<u64>(moveEvent + ME_USERDATA, load<u64>(body + B_USERDATA));
-		store<bool>(moveEvent + ME_FELLASLEEP, false);
+	// cache miss here, however I need the shape list below
+	let body = bodies + <usize>simBodyId * sizeof<b2Body>();
+	store<i32>(body + B_BODYMOVEINDEX, simIndex);
+	let moveEvent = moveEvents + <usize>simIndex * sizeof<b2BodyMoveEvent>();
+	store<b2Transform>(moveEvent + ME_TRANSFORM, b2Transform(transformP, q));
+	store<b2BodyId>(moveEvent + ME_BODYID, b2BodyId(simBodyId + 1, worldId, load<u16>(body + B_GENERATION)));
+	store<u64>(moveEvent + ME_USERDATA, load<u64>(body + B_USERDATA));
+	store<bool>(moveEvent + ME_FELLASLEEP, false);
 
-		// reset applied force and torque
-		store<b2Vec2>(sim + SIM_FORCE, b2Vec2_zero);
-		store<f32>(sim + SIM_TORQUE, 0.0);
+	// reset applied force and torque
+	store<b2Vec2>(sim + SIM_FORCE, b2Vec2_zero);
+	store<f32>(sim + SIM_TORQUE, 0.0);
 
-		// If you hit this then it means you deferred mass computation but never called b2Body_UpdateMassFromShapes
-		B2_ASSERT((load<u32>(body + B_FLAGS) & b2_dirtyMass) == 0);
+	// If you hit this then it means you deferred mass computation but never called b2Body_UpdateMassFromShapes
+	B2_ASSERT((load<u32>(body + B_FLAGS) & b2_dirtyMass) == 0);
 
-		// Clear the transient flags (fast, speed capped, had TOI). These flags are conditionally set
-		// as part of the code below.
-		let stateFlags = load<u32>(state + BS_FLAGS);
-		let bodyFlags = load<u32>(body + B_FLAGS) & ~b2_bodyTransientFlags;
-		let simFlags = load<u32>(sim + SIM_FLAGS) & ~(b2_isFast | b2_bodyTransientFlags);
+	// Clear the transient flags (fast, speed capped, had TOI). These flags are conditionally set
+	// as part of the code below.
+	let stateFlags = load<u32>(state + BS_FLAGS);
+	let bodyFlags = load<u32>(body + B_FLAGS) & ~b2_bodyTransientFlags;
+	let simFlags = load<u32>(sim + SIM_FLAGS) & ~(b2_isFast | b2_bodyTransientFlags);
 
-		// The body state flag knows about speed capping (used for debug draw).
-		bodyFlags |= stateFlags & b2_isSpeedCapped;
-		store<u32>(body + B_FLAGS, bodyFlags);
-		store<u32>(sim + SIM_FLAGS, simFlags);
-		store<u32>(state + BS_FLAGS, stateFlags & ~b2_bodyTransientFlags);
+	// The body state flag knows about speed capping (used for debug draw).
+	bodyFlags |= stateFlags & b2_isSpeedCapped;
+	store<u32>(body + B_FLAGS, bodyFlags);
+	store<u32>(sim + SIM_FLAGS, simFlags);
+	store<u32>(state + BS_FLAGS, stateFlags & ~b2_bodyTransientFlags);
 
-		if (enableSleep == false || (bodyFlags & b2_enableSleep) == 0 || sleepVelocity > load<f32>(body + B_SLEEPTHRESHOLD)) {
-			// Body is not sleepy
-			store<f32>(body + B_SLEEPTIME, 0.0);
+	if (enableSleep == false || (bodyFlags & b2_enableSleep) == 0 || sleepVelocity > load<f32>(body + B_SLEEPTHRESHOLD)) {
+		// Body is not sleepy
+		store<f32>(body + B_SLEEPTIME, 0.0);
 
-			let safetyFactor = load<f32>(body + B_SAFETYFACTOR);
-			let maxMotion = b2MaxFloat(maxDeltaPosition, maxVelocity * timeStep);
-			if (load<i32>(body + B_TYPE) == b2_dynamicBody && enableContinuous && maxMotion > safetyFactor * load<f32>(sim + SIM_MINEXTENT)) {
-				// This flag is used for debug draw and contact recycling.
-				simFlags |= b2_isFast;
-				store<u32>(sim + SIM_FLAGS, simFlags);
+		let safetyFactor = load<f32>(body + B_SAFETYFACTOR);
+		let maxMotion = b2MaxFloat(maxDeltaPosition, maxVelocity * timeStep);
+		if (load<i32>(body + B_TYPE) == b2_dynamicBody && enableContinuous && maxMotion > safetyFactor * load<f32>(sim + SIM_MINEXTENT)) {
+			// This flag is used for debug draw and contact recycling.
+			simFlags |= b2_isFast;
+			store<u32>(sim + SIM_FLAGS, simFlags);
 
-				// Store fast bullets for processing later.
-				// This is deterministic because the order of TOI sweeps doesn't matter.
-				if ((simFlags & b2_isBullet) != 0) {
-					let bulletIndex = b2AtomicFetchAddInt(stepContext.bulletBodyCount, 1);
-					stepContext.bulletBodies[bulletIndex] = simIndex;
-				} else {
-					b2SolveContinuous(world, simIndex, taskContext, stepContext.dt);
-				}
+			// Store fast bullets for processing later.
+			// This is deterministic because the order of TOI sweeps doesn't matter.
+			if ((simFlags & b2_isBullet) != 0) {
+				let bulletIndex = b2AtomicFetchAddInt(stepContext.bulletBodyCount, 1);
+				stepContext.bulletBodies[bulletIndex] = simIndex;
 			} else {
-				// Body is safe to advance
-				store<b2Vec2>(sim + SIM_CENTER0, center);
-				store<b2Rot>(sim + SIM_ROTATION0, q);
+				result |= b2_finalizeContinuous;
 			}
 		} else {
-			// Body is safe to advance and is falling asleep
+			// Body is safe to advance
 			store<b2Vec2>(sim + SIM_CENTER0, center);
 			store<b2Rot>(sim + SIM_ROTATION0, q);
-			store<f32>(body + B_SLEEPTIME, load<f32>(body + B_SLEEPTIME) + timeStep);
 		}
+	} else {
+		// Body is safe to advance and is falling asleep
+		store<b2Vec2>(sim + SIM_CENTER0, center);
+		store<b2Rot>(sim + SIM_ROTATION0, q);
+		store<f32>(body + B_SLEEPTIME, load<f32>(body + B_SLEEPTIME) + timeStep);
+	}
 
-		// Any single body in an island can keep it awake
-		let islandId = load<i32>(body + B_ISLANDID);
-		let island = world.islands[islandId];
-		let sleepTime = load<f32>(body + B_SLEEPTIME);
-		if (sleepTime < B2_TIME_TO_SLEEP) {
-			// keep island awake
-			let islandIndex = island.localIndex;
-			b2SetBit(awakeIslandBitSet, <u32>islandIndex);
-		} else if (island.constraintRemoveCount > 0) {
-			// Body wants to sleep but its island needs splitting first. Track the sleepiest candidate.
-			// Break sleep time ties using the island id to ensure determinism. The cross worker reduction
-			// breaks ties the same way.
-			if (sleepTime > taskContext.splitSleepTime || (sleepTime == taskContext.splitSleepTime && islandId > taskContext.splitIslandId)) {
-				taskContext.splitIslandId = islandId;
-				taskContext.splitSleepTime = sleepTime;
-			}
+	// Any single body in an island can keep it awake
+	let islandId = load<i32>(body + B_ISLANDID);
+	let island = world.islands[islandId];
+	let sleepTime = load<f32>(body + B_SLEEPTIME);
+	if (sleepTime < B2_TIME_TO_SLEEP) {
+		// keep island awake
+		let islandIndex = island.localIndex;
+		b2SetBit(awakeIslandBitSet, <u32>islandIndex);
+	} else if (island.constraintRemoveCount > 0) {
+		// Body wants to sleep but its island needs splitting first. Track the sleepiest candidate.
+		// Break sleep time ties using the island id to ensure determinism. The cross worker reduction
+		// breaks ties the same way.
+		if (sleepTime > taskContext.splitSleepTime || (sleepTime == taskContext.splitSleepTime && islandId > taskContext.splitIslandId)) {
+			taskContext.splitIslandId = islandId;
+			taskContext.splitSleepTime = sleepTime;
 		}
+	}
 
-		// Update shapes AABBs
-		let transform = load<b2Transform>(sim + SIM_TRANSFORM);
-		let isFast = (load<u32>(sim + SIM_FLAGS) & b2_isFast) != 0;
-		let shapeId = load<i32>(body + B_HEADSHAPEID);
-		while (shapeId != B2_NULL_INDEX) {
-			if (isFast) {
-				// For fast non-bullet bodies the AABB has already been updated in b2SolveContinuous
-				// For fast bullet bodies the AABB will be updated at a later stage
+	// Update shapes AABBs
+	let transform = load<b2Transform>(sim + SIM_TRANSFORM);
+	let isFast = (load<u32>(sim + SIM_FLAGS) & b2_isFast) != 0;
+	let shapeId = load<i32>(body + B_HEADSHAPEID);
+	while (shapeId != B2_NULL_INDEX) {
+		if (isFast) {
+			// For fast non-bullet bodies the AABB has already been updated in b2SolveContinuous
+			// For fast bullet bodies the AABB will be updated at a later stage
 
-				// Add to enlarged shapes regardless of AABB changes.
+			// Add to enlarged shapes regardless of AABB changes.
+			// Bit-set to keep the move array sorted
+			b2SetBit(enlargedSimBitSet, <u32>simIndex);
+		} else {
+			// Update bounds for slow bodies, including slow bullets.
+
+			let aabb = b2ComputeFatShapeAABB(world, shapeId, transform, speculativeDistance);
+			world.shapes[shapeId].aabb = aabb;
+
+			if (b2AABB_Contains(world.fatAABBs[shapeId], aabb) == false) {
+				let fatAABB = b2InflateAABB(aabb, world.shapes[shapeId].aabbMargin);
+				world.fatAABBs[shapeId] = fatAABB;
+
+				// Mark the hierarchy as enlarged using atomic operations.
+				b2BroadPhase_MarkProxyMoved(world.broadPhase, world.shapes[shapeId].proxyKey, fatAABB);
+
 				// Bit-set to keep the move array sorted
 				b2SetBit(enlargedSimBitSet, <u32>simIndex);
-			} else {
-				// Update bounds for slow bodies, including slow bullets.
-
-				let aabb = b2ComputeFatShapeAABB(world, shapeId, transform, speculativeDistance);
-				world.shapes[shapeId].aabb = aabb;
-
-				if (b2AABB_Contains(world.fatAABBs[shapeId], aabb) == false) {
-					let fatAABB = b2InflateAABB(aabb, world.shapes[shapeId].aabbMargin);
-					world.fatAABBs[shapeId] = fatAABB;
-
-					// Mark the hierarchy as enlarged using atomic operations.
-					b2BroadPhase_MarkProxyMoved(world.broadPhase, world.shapes[shapeId].proxyKey, fatAABB);
-
-					// Bit-set to keep the move array sorted
-					b2SetBit(enlargedSimBitSet, <u32>simIndex);
-				}
 			}
+		}
 
-			shapeId = world.shapes[shapeId].nextShapeId;
+		shapeId = world.shapes[shapeId].nextShapeId;
+	}
+
+	return result;
+}
+
+unsafe function b2FinalizeBodiesTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
+	let world = stepContext.world;
+
+	B2_ASSERT(endIndex <= world.bodyMoveEvents.length);
+
+	let taskContext = world.taskContexts[workerIndex];
+
+	for (let simIndex = startIndex; simIndex < endIndex; ++simIndex) {
+		let result = b2FinalizeBody(world, stepContext, taskContext, simIndex);
+		if ((result & b2_finalizeUnstable) != 0) {
+			let sim = b2ArrayData(stepContext.sims) + <usize>simIndex * sizeof<b2BodySim>();
+			b2LogUnstableBody(world, load<i32>(sim + SIM_BODYID));
+		}
+		if ((result & b2_finalizeContinuous) != 0) {
+			b2SolveContinuous(world, simIndex, taskContext, stepContext.dt);
 		}
 	}
 }

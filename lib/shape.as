@@ -963,6 +963,7 @@ export unsafe function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2Wo
 // geometry.c in C, which reads b2Shape.
 // Conservative world AABB for a shape, inflated by extra margin. In large world mode this is
 // computed in double and rounded outward so the inflation is not lost far from the origin.
+@inline
 export unsafe function b2ComputeFatShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform, extra: f32): b2AABB {
 	let shapes = b2ShapeView(world.shapes);
 	switch (shapes[shapeId].type) {

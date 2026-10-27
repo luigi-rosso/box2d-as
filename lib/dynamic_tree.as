@@ -1684,6 +1684,7 @@ export function b2DynamicTree_MarkProxyMovedSerial(tree: b2DynamicTree, proxyId:
 
 // Update a proxy AABB and flag the ancestors as moved. Thread-safe using atomics.
 // Single threaded here: the atomic load and fetch-or are a plain read and or.
+@inline
 export function b2DynamicTree_MarkProxyMoved(tree: b2DynamicTree, proxyId: i32, aabb: b2AABB): void {
 	let nodes = tree.nodes;
 	let parents = tree.parents;
