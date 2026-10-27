@@ -12,10 +12,7 @@ import { b2StepContext } from "./solver";
 import { b2World } from "./physics_world";
 import {
 	b2CheckJointInput,
-	b2GetJointLocalIndex,
 	b2GetJointSimAddressCheckType,
-	b2GetJointSimViewCheckType,
-	b2JointSim,
 	b2JointSimAt,
 	b2MoverJointAt,
 	b2WriteStateLinearVelocity,

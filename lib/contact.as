@@ -47,8 +47,8 @@ import {
 	b2_segmentShape,
 	b2_shapeTypeCount,
 } from "./types";
-import { b2ArrayData, b2BodyView, b2EncodeBodySimIndex, b2WakeBody, b2_bodyEnableContactRecycling } from "./body";
-import { b2GetShapeRadius, b2ShapeView } from "./shape";
+import { b2ArrayView, b2EncodeBodySimIndex, b2WakeBody, b2_bodyEnableContactRecycling } from "./body";
+import { b2GetShapeRadius } from "./shape";
 import { b2UnlinkContact } from "./island";
 import { b2GetWorld, b2World } from "./physics_world";
 import { b2_awakeSet, b2_disabledSet, b2_staticSet } from "./solver_set";
@@ -173,18 +173,6 @@ export struct b2ContactSim {
 	cache: b2SimplexCache = b2SimplexCache();
 }
 
-// C points into the growable contact Array; this views its buffer as a StaticArray so a contact binds by ref in
-// place, valid until the array grows
-@inline export unsafe function b2ContactView(contacts: Array<b2Contact>): StaticArray<b2Contact> {
-	return changetype<StaticArray<b2Contact>>(b2ArrayData(contacts));
-}
-
-// C points into a growable Array of contact sims; this views the Array's buffer as a StaticArray so an element
-// binds by ref in place, valid until the array grows
-@inline export unsafe function b2ContactSimView(sims: Array<b2ContactSim>): StaticArray<b2ContactSim> {
-	return changetype<StaticArray<b2ContactSim>>(b2ArrayData(sims));
-}
-
 @inline export function b2MixFriction(frictionA: f32, frictionB: f32): f32 {
 	return Mathf.sqrt(frictionA * frictionB);
 }
@@ -290,7 +278,7 @@ const b2_contactRegistryPrimary = b2MakeRegistry(true);
 
 // The primary manifold function of the registry for shapeA's type against shapeB's type
 unsafe function b2ComputeLocalManifold(world: b2World, shapeIdA: i32, shapeIdB: i32, xf: b2Transform, cache: ref b2SimplexCache): b2LocalManifold {
-	let shapes = b2ShapeView(world.shapes);
+	let shapes = b2ArrayView(world.shapes);
 	let typeA = shapes[shapeIdA].type;
 	let typeB = shapes[shapeIdB].type;
 	switch (typeA) {
@@ -334,7 +322,7 @@ export function b2CanCollide(typeA: b2ShapeType, typeB: b2ShapeType): bool {
 }
 
 unsafe function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
-	let shapes = b2ShapeView(world.shapes);
+	let shapes = b2ArrayView(world.shapes);
 	let frictionCallback = world.frictionCallback;
 	if (frictionCallback == null) {
 		return b2MixFriction(shapes[shapeIdA].material.friction, shapes[shapeIdB].material.friction);
@@ -349,7 +337,7 @@ unsafe function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): 
 }
 
 unsafe function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
-	let shapes = b2ShapeView(world.shapes);
+	let shapes = b2ArrayView(world.shapes);
 	let restitutionCallback = world.restitutionCallback;
 	if (restitutionCallback == null) {
 		return b2MixRestitution(shapes[shapeIdA].material.restitution, shapes[shapeIdB].material.restitution);
@@ -406,7 +394,7 @@ export unsafe function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: 
 		world.contacts.push(b2Contact());
 	}
 
-	let contacts = b2ContactView(world.contacts);
+	let contacts = b2ArrayView(world.contacts);
 	ref contact = contacts[contactId];
 	contact.contactId = contactId;
 	contact.generation += 1;
@@ -471,11 +459,11 @@ export unsafe function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: 
 	// Contacts are created as non-touching. Later if they are found to be touching
 	// they will link islands and be moved into the constraint graph.
 	let simIndex = b2Array_AddIndex(set.contactSims);
-	let sims = b2ContactSimView(set.contactSims);
+	let sims = b2ArrayView(set.contactSims);
 	ref contactSim = sims[simIndex];
 	contactSim.contactId = contactId;
 
-	let bodyView = b2BodyView(world.bodies);
+	let bodyView = b2ArrayView(world.bodies);
 	contactSim.encodedBodySimA = b2EncodeBodySimIndex(bodyView[bodyIdA]);
 	contactSim.encodedBodySimB = b2EncodeBodySimIndex(bodyView[bodyIdB]);
 	contactSim.invMassA = 0.0;
@@ -664,7 +652,7 @@ export unsafe function b2UpdateContact(
 		mp.id = local.points[i].id;
 	}
 
-	let shapes = b2ShapeView(world.shapes);
+	let shapes = b2ArrayView(world.shapes);
 
 	// Keep these updated in case the values on the shapes are modified
 	contactSim.friction = b2MixFrictionFor(world, shapeIdA, shapeIdB);

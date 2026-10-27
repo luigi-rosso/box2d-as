@@ -120,7 +120,6 @@ import { b2AllocId, b2FreeId } from "./id_pool";
 import { b2Array_RemoveSwap } from "./container";
 import { b2GetWorld, b2GetWorldLocked, b2World } from "./physics_world";
 import {
-	b2ArrayData,
 	b2GetBodyFullId,
 	b2GetBodySim,
 	b2GetBodyState,
@@ -131,6 +130,7 @@ import {
 	b2UpdateBodyMassData,
 	b2WakeBody,
 	b2_dirtyMass,
+	b2ArrayView,
 } from "./body";
 import { b2_awakeSet, b2_disabledSet, b2_firstSleepingSet } from "./solver_set";
 import { b2DestroyContact, b2GetContactSimArray, b2_contactTouchingFlag } from "./contact";
@@ -191,12 +191,6 @@ export struct b2ShapeExtent {
 // When a sensor is destroyed.
 export class b2SensorOverlaps {
 	overlaps: Array<i32> = new Array<i32>();
-}
-
-// C points into the growable shape Array; this views its buffer as a StaticArray so a shape binds by ref in
-// place, valid until the array grows
-@inline export unsafe function b2ShapeView(shapes: Array<b2Shape>): StaticArray<b2Shape> {
-	return changetype<StaticArray<b2Shape>>(b2ArrayData(shapes));
 }
 
 export function b2GetShapeRadius(shape: ref b2Shape): f32 {
@@ -941,7 +935,7 @@ export function b2Chain_GetSurfaceMaterial(chainId: b2ChainId, segmentIndex: i32
 }
 
 export unsafe function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform): b2AABB {
-	let shapes = b2ShapeView(world.shapes);
+	let shapes = b2ArrayView(world.shapes);
 	switch (shapes[shapeId].type) {
 		case b2_capsuleShape:
 			return b2ComputeCapsuleBounds(shapes[shapeId].capsule, xf);
@@ -965,7 +959,7 @@ export unsafe function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2Wo
 // computed in double and rounded outward so the inflation is not lost far from the origin.
 @inline
 export unsafe function b2ComputeFatShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform, extra: f32): b2AABB {
-	let shapes = b2ShapeView(world.shapes);
+	let shapes = b2ArrayView(world.shapes);
 	switch (shapes[shapeId].type) {
 		case b2_capsuleShape:
 			return b2ComputeCapsuleFatAABB(shapes[shapeId].capsule, xf, extra);

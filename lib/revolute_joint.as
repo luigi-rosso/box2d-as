@@ -30,7 +30,7 @@ import {
 } from "./math_functions";
 import { b2JointId } from "./id";
 import { b2_revoluteJoint } from "./types";
-import { b2BodyState, b2GetBodyState, b2GetBodyTransform, b2StateAddress, b2_dynamicFlag, b2BodySimView } from "./body";
+import { b2BodyState, b2GetBodyState, b2GetBodyTransform, b2StateAddress, b2_dynamicFlag, b2ArrayView } from "./body";
 import { b2_awakeSet } from "./solver_set";
 import { b2MakeSoft, b2StepContext } from "./solver";
 import { b2GetWorld, b2World } from "./physics_world";
@@ -39,7 +39,6 @@ import {
 	b2GetJointLocalIndex,
 	b2GetJointSimAddressCheckType,
 	b2GetJointSimViewCheckType,
-	b2JointSim,
 	b2JointSimAt,
 	b2RevoluteJointAt,
 	b2WriteStateVelocity,
@@ -278,8 +277,8 @@ export function b2PrepareRevoluteJoint(baseAddress: usize, context: b2StepContex
 	let localIndexA = world.bodies[idA].localIndex;
 	let localIndexB = world.bodies[idB].localIndex;
 
-	let simsA = b2BodySimView(setA.bodySims);
-	let simsB = b2BodySimView(setB.bodySims);
+	let simsA = b2ArrayView(setA.bodySims);
+	let simsB = b2ArrayView(setB.bodySims);
 	ref bodySimA = simsA[localIndexA];
 	ref bodySimB = simsB[localIndexB];
 

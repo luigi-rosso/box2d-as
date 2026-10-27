@@ -7,8 +7,8 @@ import { B2_ASSERT, B2_ASSERT_ENABLED, B2_NULL_INDEX } from "./core";
 import { B2_GRAPH_COLOR_COUNT } from "./constants";
 import { b2MaxInt } from "./math_functions";
 import { b2BodyType, b2Capacity, b2_dynamicBody, b2_staticBody } from "./types";
-import { b2BodyView, b2EncodeBodySimIndex } from "./body";
-import { b2ContactSim, b2ContactSimView, b2_contactTouchingFlag, b2_simTouchingFlag } from "./contact";
+import { b2EncodeBodySimIndex, b2ArrayView } from "./body";
+import { b2ContactSim, b2_contactTouchingFlag, b2_simTouchingFlag } from "./contact";
 import { b2JointSim } from "./joint";
 import { b2ContactConstraint } from "./contact_solver";
 import { b2World } from "./physics_world";
@@ -168,9 +168,9 @@ export unsafe function b2AddContactToGraph(world: b2World, contactSim: ref b2Con
 
 	let newIndex = color.contactSims.length;
 	color.contactSims.push(contactSim);
-	let colorSims = b2ContactSimView(color.contactSims);
+	let colorSims = b2ArrayView(color.contactSims);
 	ref newContact = colorSims[newIndex];
-	let bodyView = b2BodyView(world.bodies);
+	let bodyView = b2ArrayView(world.bodies);
 
 	// todo perhaps skip this if the contact is already awake
 

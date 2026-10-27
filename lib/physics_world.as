@@ -137,7 +137,6 @@ import { b2Joint } from "./joint";
 import {
 	b2Contact,
 	b2ContactSim,
-	b2ContactSimView,
 	b2DestroyContact,
 	b2UpdateContact,
 	b2_contactEnableContactEvents,
@@ -609,7 +608,7 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 
 	let spanStart = spans[spanIndex].start;
 	let spanEnd = spans[spanIndex + 1].start;
-	let spanBase = b2ContactSimView(spans[spanIndex].contacts);
+	let spanBase = b2ArrayView(spans[spanIndex].contacts);
 
 	let recycleDistance = world.contactRecycleDistance;
 	let speculativeDistance = B2_SPECULATIVE_DISTANCE();
@@ -620,7 +619,7 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 			spanIndex += 1;
 			spanStart = spans[spanIndex].start;
 			spanEnd = spans[spanIndex + 1].start;
-			spanBase = b2ContactSimView(spans[spanIndex].contacts);
+			spanBase = b2ArrayView(spans[spanIndex].contacts);
 		}
 
 		ref contactSim = spanBase[contactIndex - spanStart];
@@ -927,7 +926,7 @@ function b2Collide(context: b2StepContext): void {
 
 				// Contact sim pointer may have become orphaned due to awake set growth,
 				// so I just need to refresh it.
-				let awakeSims = b2ContactSimView(awakeSet.contactSims);
+				let awakeSims = b2ArrayView(awakeSet.contactSims);
 				ref contactSim = awakeSims[localIndex];
 
 				contactSim.simFlags &= ~b2_simStartedTouching;
