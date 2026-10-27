@@ -38,9 +38,9 @@ $RASC entry.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub -O -o ou
   across the module files as in C and re-exported from `lib/box2d.as`.
 - Keep the order of functions in each file as in C, so the two diff side by
   side.
-- Start each file with:
+- Start each file with the C file's own SPDX copyright line, then:
   ```
-  // SPDX-FileCopyrightText: 2026 Erin Catto
+  // SPDX-FileCopyrightText: <year from the C file> Erin Catto
   // SPDX-License-Identifier: MIT
   // AnimaScript port of src/<file>.c
   ```
