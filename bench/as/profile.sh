@@ -47,9 +47,16 @@ grep "BENCH RESULT" "$OUT/run.log"
 
 AOT=$(ls -t "$CACHE"/*/*.aot | head -1)
 WASM=${AOT%.aot}.wasm
-"$WAMRC" --bounds-checks=1 --opt-level=3 --cpu=generic --cpu-features=+reserve-x18,+lse --tune-cpu=apple-m1 \
+# The ladder's flags; a CLI built with hardware bounds caches .hw.aot artifacts compiled without software checks
+BOUNDS=--bounds-checks=1
+case "$AOT" in *.hw.aot)
+	WASM=${AOT%.hw.aot}.wasm
+	BOUNDS="--bounds-checks=0 --stack-bounds-checks=1"
+	;;
+esac
+"$WAMRC" $BOUNDS --opt-level=3 --cpu=generic --cpu-features=+reserve-x18 --tune-cpu=apple-m1 \
 	--format=object -o "$OUT/module.o" "$WASM" > /dev/null
-"$WAMRC" --bounds-checks=1 --opt-level=3 --cpu=generic --cpu-features=+reserve-x18,+lse --tune-cpu=apple-m1 \
+"$WAMRC" $BOUNDS --opt-level=3 --cpu=generic --cpu-features=+reserve-x18 --tune-cpu=apple-m1 \
 	-o "$OUT/check.aot" "$WASM" > /dev/null
 cmp -s "$OUT/check.aot" "$AOT" || echo "warning: wamrc flags differ from the ladder's, symbols may be off"
 xctrace export --input "$OUT/profile.trace" \
