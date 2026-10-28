@@ -123,8 +123,9 @@ helper from `lib/core.as`.
   fills one output.
 - `T* p = array + i` then reads and writes through `p`: when the array is a
   `StaticArray<T>` or `FixedArray`, `ref p = array[i]`. When it is a
-  growable `Array<T>`, rasc refuses a `ref` (push may move it); write through
-  the place directly (`arr[i].v.x = ...`) or copy out, mutate, store back.
+  growable `Array<T>`, rasc refuses a `ref` (push may move it); bind a view of
+  its buffer, `let v = b2ArrayView(arr); ref p = v[i];` (body.as), valid until
+  the array grows. Never copy a struct out and store it back in hot code.
 - A function that returns a pointer into an array returns the index instead,
   and the caller binds the element.
 - Pointers stored inside other structs (`b2ContactSim**`) become indices.
@@ -250,8 +251,18 @@ up front instead of rediscovering them.
   change 7), so a callback may query again.
 - No `Mathf.sin`/`cos`/`atan2`; Box2D's `b2ComputeCosSin` and `b2Atan2`.
 - Joints split prepare, warm start and solve as C does, and read sims in place.
-- WAMR's fast interpreter traps on v128 locals past frame cell 256: a SIMD
-  artifact needs AOT. The scalar artifact must stay good on the interpreter.
+- WAMR AOT keeps the memory base in registers only in a function that makes no
+  calls. Hot, store heavy code lives in call free `@noinline` functions (the
+  contact kernels, the integrations, `b2FinalizeBody`).
+- C unions are one payload with each member bound through a view at the
+  struct's address (`b2RevoluteJointAt(sim)`, joint.as), not one field per
+  member: `b2JointSim` is 256 bytes as in C, not 972.
+- Large `const T*` inputs pass by `ref` (`b2Polygon`, `b2DistanceInput`,
+  `b2TOIInput`), with world shapes bound through `b2ArrayView`.
+- WAMR's fast interpreter traps on v128 locals past frame cell 256. The release
+  bake keeps every kernel under it (largest 200; check a change with
+  `bench/as/tools/v128cells.py`), plain `-O` does not. The scalar artifact must
+  stay good on the interpreter.
 
 ## Gates
 
