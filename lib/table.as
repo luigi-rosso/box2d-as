@@ -84,7 +84,8 @@ function b2FindSlot(set: b2HashSet, key: u64, hash: u64): i32 {
 	let capacity = set.capacity;
 	let index = <u32>hash & (capacity - 1);
 	let items = set.items;
-	while (items[<i32>index].key != 0 && items[<i32>index].key != key) {
+	// index is masked by capacity - 1 and items holds capacity items
+	while (unchecked(items[<i32>index].key) != 0 && unchecked(items[<i32>index].key) != key) {
 		index = (index + 1) & (capacity - 1);
 	}
 
@@ -136,7 +137,8 @@ export function b2ContainsKey(set: b2HashSet, key: u64): bool {
 export function b2ContainsHashedKey(set: b2HashSet, key: u64, hash: u64): bool {
 	// key of zero is a sentinel
 	let index = b2FindSlot(set, key, hash);
-	return set.items[index].key == key;
+	// b2FindSlot returns a masked index
+	return unchecked(set.items[index].key) == key;
 }
 
 export function b2GetHashSetBytes(set: b2HashSet): i32 {

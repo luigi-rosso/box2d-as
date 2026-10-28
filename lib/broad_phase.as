@@ -19,7 +19,7 @@ import {
 	b2RadixSortKeys,
 	b2SelfPairsTask,
 } from "./broad_phase_core";
-import { b2ShouldBodiesCollide } from "./body";
+import { b2ArrayView, b2ShouldBodiesCollide } from "./body";
 import { b2CanCollide, b2CreateContact } from "./contact";
 import { b2ParallelFor } from "./parallel_for";
 import { b2World } from "./physics_world";
@@ -35,12 +35,14 @@ export class b2WorldPairFilter {
 		this.world = world;
 	}
 
-	shouldCreatePair(shapeIdA: i32, shapeIdB: i32): bool {
+	unsafe shouldCreatePair(shapeIdA: i32, shapeIdB: i32): bool {
 		let world = this.world;
-		let shapes = world.shapes;
+		let shapes = b2ArrayView(world.shapes);
+		ref shapeA = shapes[shapeIdA];
+		ref shapeB = shapes[shapeIdB];
 
-		let bodyIdA = shapes[shapeIdA].bodyId;
-		let bodyIdB = shapes[shapeIdB].bodyId;
+		let bodyIdA = shapeA.bodyId;
+		let bodyIdB = shapeB.bodyId;
 
 		// Are the shapes on the same body?
 		if (bodyIdA == bodyIdB) {
@@ -48,15 +50,15 @@ export class b2WorldPairFilter {
 		}
 
 		// Sensors are handled elsewhere
-		if (shapes[shapeIdA].sensorIndex != B2_NULL_INDEX || shapes[shapeIdB].sensorIndex != B2_NULL_INDEX) {
+		if (shapeA.sensorIndex != B2_NULL_INDEX || shapeB.sensorIndex != B2_NULL_INDEX) {
 			return false;
 		}
 
-		if (b2ShouldShapesCollide(shapes[shapeIdA].filter, shapes[shapeIdB].filter) == false) {
+		if (b2ShouldShapesCollide(shapeA.filter, shapeB.filter) == false) {
 			return false;
 		}
 
-		if (b2CanCollide(shapes[shapeIdA].type, shapes[shapeIdB].type) == false) {
+		if (b2CanCollide(shapeA.type, shapeB.type) == false) {
 			// For example, no segment vs segment collision
 			return false;
 		}
@@ -67,11 +69,11 @@ export class b2WorldPairFilter {
 		}
 
 		// Custom user filter
-		if (shapes[shapeIdA].enableCustomFiltering || shapes[shapeIdB].enableCustomFiltering) {
+		if (shapeA.enableCustomFiltering || shapeB.enableCustomFiltering) {
 			let customFilterFcn = world.customFilterFcn;
 			if (customFilterFcn != null) {
-				let idA = b2ShapeId(shapeIdA + 1, world.worldId, shapes[shapeIdA].generation);
-				let idB = b2ShapeId(shapeIdB + 1, world.worldId, shapes[shapeIdB].generation);
+				let idA = b2ShapeId(shapeIdA + 1, world.worldId, shapeA.generation);
+				let idB = b2ShapeId(shapeIdB + 1, world.worldId, shapeB.generation);
 				let shouldCollide = customFilterFcn(idA, idB);
 				if (shouldCollide == false) {
 					return false;

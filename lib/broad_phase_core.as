@@ -221,12 +221,14 @@ export function b2FlushCandidatePairs<F>(context: b2PairContext<F>): void {
 	let count1 = context.batchCount;
 	context.batchCount = 0;
 
+	// Every buffer holds B2_CANDIDATE_BATCH items and count1 never exceeds it
 	let batch = context.batch;
 	let keys = context.keys;
 	let hashes = context.hashes;
 	for (let i = 0; i < count1; ++i) {
-		keys[i] = B2_SHAPE_PAIR_KEY(batch[i].shapeIdA, batch[i].shapeIdB);
-		hashes[i] = b2KeyHash(keys[i]);
+		let key = B2_SHAPE_PAIR_KEY(unchecked(batch[i].shapeIdA), unchecked(batch[i].shapeIdB));
+		unchecked(keys[i] = key);
+		unchecked(hashes[i] = b2KeyHash(key));
 	}
 
 	// Cull existing pairs.
@@ -234,9 +236,9 @@ export function b2FlushCandidatePairs<F>(context: b2PairContext<F>): void {
 	let candidates = context.candidates;
 	let count2 = 0;
 	for (let i = 0; i < count1; ++i) {
-		let pairExists = b2ContainsHashedKey(pairSet, keys[i], hashes[i]);
+		let pairExists = b2ContainsHashedKey(pairSet, unchecked(keys[i]), unchecked(hashes[i]));
 		if (pairExists == false) {
-			candidates[count2] = batch[i];
+			unchecked(candidates[count2] = batch[i]);
 			count2 += 1;
 		}
 	}
@@ -244,8 +246,8 @@ export function b2FlushCandidatePairs<F>(context: b2PairContext<F>): void {
 	// Filter candidates.
 	let pairKeys = context.pairKeys;
 	for (let i = 0; i < count2; ++i) {
-		let shapeIdA = candidates[i].shapeIdA;
-		let shapeIdB = candidates[i].shapeIdB;
+		let shapeIdA = unchecked(candidates[i].shapeIdA);
+		let shapeIdB = unchecked(candidates[i].shapeIdB);
 
 		if (context.filter.shouldCreatePair(shapeIdA, shapeIdB) == false) {
 			continue;

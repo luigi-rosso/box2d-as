@@ -2297,33 +2297,36 @@ export function b2Body_GetJoints(bodyId: b2BodyId, jointArray: StaticArray<b2Joi
 	return jointCount;
 }
 
-export function b2ShouldBodiesCollide(world: b2World, bodyIdA: i32, bodyIdB: i32): bool {
-	let bodies = world.bodies;
-	if (bodies[bodyIdA].type != b2_dynamicBody && bodies[bodyIdB].type != b2_dynamicBody) {
+export unsafe function b2ShouldBodiesCollide(world: b2World, bodyIdA: i32, bodyIdB: i32): bool {
+	let bodies = b2ArrayView(world.bodies);
+	ref bodyA = bodies[bodyIdA];
+	ref bodyB = bodies[bodyIdB];
+	if (bodyA.type != b2_dynamicBody && bodyB.type != b2_dynamicBody) {
 		return false;
 	}
 
 	let jointKey: i32;
 	let otherBodyId: i32;
-	if (bodies[bodyIdA].jointCount < bodies[bodyIdB].jointCount) {
-		jointKey = bodies[bodyIdA].headJointKey;
-		otherBodyId = bodies[bodyIdB].id;
+	if (bodyA.jointCount < bodyB.jointCount) {
+		jointKey = bodyA.headJointKey;
+		otherBodyId = bodyB.id;
 	} else {
-		jointKey = bodies[bodyIdB].headJointKey;
-		otherBodyId = bodies[bodyIdA].id;
+		jointKey = bodyB.headJointKey;
+		otherBodyId = bodyA.id;
 	}
 
-	let joints = world.joints;
+	let joints = b2ArrayView(world.joints);
 	while (jointKey != B2_NULL_INDEX) {
 		let jointId = jointKey >> 1;
 		let edgeIndex = jointKey & 1;
 		let otherEdgeIndex = edgeIndex ^ 1;
 
-		if (joints[jointId].collideConnected == false && joints[jointId].edges[otherEdgeIndex].bodyId == otherBodyId) {
+		ref joint = joints[jointId];
+		if (joint.collideConnected == false && joint.edges[otherEdgeIndex].bodyId == otherBodyId) {
 			return false;
 		}
 
-		jointKey = joints[jointId].edges[edgeIndex].nextKey;
+		jointKey = joint.edges[edgeIndex].nextKey;
 	}
 
 	return true;
