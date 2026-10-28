@@ -251,9 +251,13 @@ up front instead of rediscovering them.
   change 7), so a callback may query again.
 - No `Mathf.sin`/`cos`/`atan2`; Box2D's `b2ComputeCosSin` and `b2Atan2`.
 - Joints split prepare, warm start and solve as C does, and read sims in place.
-- WAMR AOT keeps the memory base in registers only in a function that makes no
-  calls. Hot, store heavy code lives in call free `@noinline` functions (the
-  contact kernels, the integrations, `b2FinalizeBody`).
+- WAMR AOT reloads the memory base and bound after every call (and, with a
+  wamrc older than rive's patch 0037, after every store) in a function that
+  makes calls. Hot, store heavy code lives in call free `@noinline` functions
+  (the contact kernels, the integrations, `b2FinalizeBody`).
+- A struct or `FixedArray` local declared without a value is zeroed on every
+  call. Large temporaries that C leaves uninitialized and fills before reading
+  (`b2CollidePolygons`' local polygons) live in a module scratch instead.
 - C unions are one payload with each member bound through a view at the
   struct's address (`b2RevoluteJointAt(sim)`, joint.as), not one field per
   member: `b2JointSim` is 256 bytes as in C, not 972.

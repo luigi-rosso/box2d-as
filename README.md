@@ -141,7 +141,9 @@ recording on every step.
 | joints | 0.0068 | 0.0143 | 0.0137 | 0.96 | 0.0147 | 0.0145 | 0.99 |
 | queries | 0.0025 | 0.0114 | 0.0129 | 1.14 | 0.0170 | 0.0135 | 0.79 |
 
-- With SIMD the port runs at 0.99 to 1.17x C on the same engine; C on wasm is itself 1.16 to 1.44x native.
+- With SIMD the port runs at 0.99 to 1.17x C on the same engine; C on wasm is itself 1.16 to 1.44x native. After
+  the second pass (d24f4a3; 5 rounds at load 6 to 8, `notes/perf.md`) the benchmark scenes run at 0.97 to 1.11x C:
+  rain 1.08, smash 1.11, spinner 1.09, tumbler 1.05.
 - The solver stages run at C's speed; what is left is the contact churn of rain and smash, where pairs and collide
   are 1.26 to 1.36x C.
 - Without SIMD it beats C's scalar wasm on all but rain: C's scalar build gets no autovectorization on wasm, while
@@ -153,25 +155,26 @@ Reproduce: `bench/web/build.sh` (`EMSDK`, `WASM_OPT` = binaryen 133), `bench/web
 ### WAMR AOT: the port against native Box2D
 
 rive-cli's own runtime: the release bake of `bench/as` on WAMR AOT (`--aot`, `RIVE_WASM_AOT_SYNC=o3`, the SIMD
-artifact, software bounds checks as shipped), interleaved with native NEON Box2D and with the same module on V8.
-`bench/web/aot.mjs`, 3 rounds, 96 runs, load 4.3 to 8.2, rive master (8e7360ec48), 2026-10-27; means from step 1,
-every hash matched.
+artifact), interleaved with native NEON Box2D. Software bounds is rive master's CLI (8e7360ec48) as shipped; hardware
+bounds is the CLI of draft PR #15153, which makes guard page bounds the default on 64-bit macOS and Linux. Both use a
+wamrc with rive's patch 0037. 4 rounds, 112 runs, load 6.4 to 12.5, 2026-10-27; means from step 1, every hash matched.
 
-| scene | native NEON | AS WAMR AOT | AOT / native | AS on V8 | V8 / native |
+| scene | native NEON | AS AOT, software bounds | AOT / native | AS AOT, hardware bounds | AOT / native |
 |---|---|---|---|---|---|
-| large_pyramid | 1.10 | 1.33 | 1.21 | 1.29 | 1.17 |
-| many_bodies | 0.874 | 1.01 | 1.16 | 1.06 | 1.21 |
-| joint_grid | 2.09 | 2.73 | 1.31 | 2.88 | 1.38 |
-| rain | 2.00 | 2.73 | 1.37 | 2.62 | 1.31 |
-| smash | 0.897 | 1.33 | 1.48 | 1.28 | 1.43 |
-| spinner | 3.19 | 4.87 | 1.53 | 4.27 | 1.34 |
-| tumbler | 0.570 | 0.881 | 1.55 | 0.792 | 1.39 |
+| large_pyramid | 1.14 | 1.31 | 1.15 | 1.24 | 1.09 |
+| many_bodies | 0.884 | 1.06 | 1.20 | 1.00 | 1.13 |
+| joint_grid | 2.22 | 2.92 | 1.32 | 2.41 | 1.09 |
+| rain | 2.11 | 2.74 | 1.30 | 2.36 | 1.12 |
+| smash | 0.957 | 1.32 | 1.38 | 1.17 | 1.22 |
+| spinner | 3.40 | 4.64 | 1.37 | 4.14 | 1.22 |
+| tumbler | 0.587 | 0.786 | 1.34 | 0.698 | 1.19 |
 
-- On the solver heavy scenes WAMR AOT runs the port at 1.16 to 1.37x native.
-- The contact churn scenes (smash, spinner, tumbler) trail at 1.5x: their narrow phase is 1.6 to 2.4x native on AOT,
-  where WAMR checks every access in software and reloads the memory base around the accesses of any function that
-  makes calls (`notes/perf.md`).
-- The scalar artifact on AOT: 1.3 to 1.35x native scalar on the pyramids and joint_grid.
+- As shipped, WAMR AOT runs the port at 1.15 to 1.38x native: every load and store carries a software bounds check.
+- With hardware bounds it runs at 1.09 to 1.22x native, 5 to 18% faster; the narrow phase gains most (collide 1.5 to
+  1.8x native with software bounds, 1.0 to 1.4x with hardware bounds).
+- Use a wamrc built from rive's current patches: one without patch 0037 reloads the memory base after every store in
+  any function that calls, up to 10% slower here.
+- The scalar artifact on AOT (first pass, older wamrc): 1.3 to 1.35x native scalar on the pyramids and joint_grid.
 
 Reproduce: `ROUNDS=3 RIVE_WAMRC=<wamrc> node bench/web/aot.mjs`, then `node bench/web/bench.mjs --table=<log>`, or
 `bench/as/run.sh` for the AOT tier alone against `bench/native`.
@@ -204,7 +207,8 @@ largest is cell 200 (`bench/as/tools/v128cells.py`). A build without the binarye
 
 Toolchain: rasc, its std and rive-cli from a rive master checkout (`verify/toolchain.sh` looks in
 `~/Projects/rive-pinefall`, then `~/Projects/rive-master`; `RASC`, `AS_STD`, `RIVE` and `RIVE_WAMRC` override), and a
-wamrc for `--aot` built from the patched WAMR the CLI build downloads (`~/Projects/tools/wamrc` by default).
+wamrc for `--aot` built from the patched WAMR the CLI build downloads (`~/Projects/tools/wamrc` by default,
+which predates patch 0037; point `RIVE_WAMRC` at a current build).
 
 The gates need upstream Box2D at `~/Projects/box2d` (`BOX2D`), built in `build/scalar` (`BOX2D_DISABLE_SIMD=ON`,
 `-ffp-contract=off`) and `build/release`. The native recordings in `verify/scenes/out` are not committed:
