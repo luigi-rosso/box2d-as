@@ -473,21 +473,22 @@ export struct b2TreeNode {
 	/// The node bounding box
 	aabb: b2AABB = b2AABB();
 
+	// C's union of height and shapeIndex is two fields here; shapeIndex takes half of the padding so a node stays
+	// 32 bytes as in C, and a sibling pair one cache line
+
+	/// The shape index for a leaf. Truncated from proxy user data.
+	shapeIndex: i32 = 0;
+
 	/// In 3D this space is used by the AABB z components.
-	padding: u64 = 0;
+	padding: u32 = 0;
 
 	/// - bit 31 : 1 for leaf node
 	/// - bit 30 : 1 for moved flag
 	/// - bits 0-29 : index of the sibling pair node or the proxy id for a leaf
 	flagIndex: u32 = 0;
 
-	// The C union becomes one field per member; they do not alias.
-
 	/// The height of an internal node. A leaf has zero height.
 	height: i32 = 0;
-
-	/// The shape index for a leaf. Truncated from proxy user data.
-	shapeIndex: i32 = 0;
 }
 
 /// Separate storage for tree leaves.
