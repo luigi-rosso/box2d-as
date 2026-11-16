@@ -167,6 +167,7 @@ exactness, with no tolerance.
 | `verify/heap.mjs` | wasm pages after step 20 and step 200 under the frame collector: a settled scene must not grow | 11 scenes |
 | `bench/web/verify.sh` | the state hash of every step on V8, for the port and for C Box2D on wasm | 18 scenes, 6 builds |
 | `verify/threads.sh --large` | under rive-cli with the step on parallel calls at 1, 2, 4 and 8 parts and the default: every step's state hash and the hash of its whole trajectory record (events, counters, sleep flags, probes) against the native recording | 18 scenes, 90 runs |
+| `bench/web/parallel.mjs` | the same check on a page in Chrome, WebKit and Firefox, over librive's threads build | 8 scenes, 40 runs a browser |
 
 The 18 scenes are pyramid, shape rain, chain car, joints, dynamic mover, churn (create, destroy and every body
 setter), bullets, sensors, events, queries, the geometric mover, many bodies, and upstream's benchmarks large
@@ -322,7 +323,8 @@ verify/threads.sh --large
 Benches: `bench/native/run.sh`, `bench/as/run.sh` (WAMR AOT and interpreter against native), `bench/as/threads.sh`
 (parallel calls against native at the same worker counts), and `bench/web/`
 (`build.sh` builds C Box2D with emscripten and the port's release bake, `bench.mjs` runs the V8 rounds, `aot.mjs`
-WAMR AOT against V8 and native, `verify.sh` the hash sweep). `EMSDK` and `WASM_OPT` name emsdk and binaryen 133.
+WAMR AOT against V8 and native, `verify.sh` the hash sweep, `parallel.mjs` the threaded step in a browser). `EMSDK` and
+`WASM_OPT` name emsdk and binaryen 133.
 
 ## Notes
 

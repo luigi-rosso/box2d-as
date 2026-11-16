@@ -36,6 +36,11 @@ Bit exact at every part count, on rive master at 5d0e608da3 (rasc, rive-cli and 
 | the same on the interpreter (`TIER=interp`), 5 scenes at 1 and 4 parts | 10 | 10 |
 | rain, smash, spinner, joint_grid and churn at 8 parts, three runs each | 15 | 15 |
 
+In browsers (`bench/web/parallel.mjs`: the same bakes on a cross origin isolated page over librive's web scripting
+harness, built with threads from the same master; headless Chrome 157, WebKit 27.2 and Firefox 157): pyramid, joints,
+churn, bullets, sensors, events, large_pyramid and rain at 1, 2, 4 and 8 parts and the default pass 40 of 40 in each
+browser, and no run hung. Only parts other than 0 sleep, since a page's thread may not wait.
+
 Each run logs, for every step, the hash of the bodies' state and the hash of the whole trajectory record but its
 build and worker dependent counters (`verify/scenes/record.as`), so contact, sensor, joint and body events, counters,
 sleep flags and the scenes' probes are held to the native recording too, not only poses. The build before the
@@ -213,5 +218,3 @@ Size: `lib/parallel_step.as` is about 200 lines, and making the rest of lib para
   part 0 spins on a stage's completion count, as in C, so a part cannot see that another one trapped; `part.sync()`
   checks the call's stop flag, user code has no way to. Natively the runtime interrupts the parts, and a metered bake
   runs out of fuel; a browser running a bake without fuel, or a `dangerouslyFast` one, would wait on.
-- **The web runtime is not tested.** Everything here ran natively under rive-cli. The backend uses what box3d-as uses
-  on the web, plus `atomic.wait` and `atomic.notify` from script code in parts other than 0.

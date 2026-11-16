@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Box2D parallel calls</title>
+<script type="module">
+// parallel.mjs's page: librive's web scripting page harness loads a bench/as bake and runs frames until the script
+// logs its BENCH RESULT, yielding to the event loop between frames as a page does. parts sizes a parallel call's
+// parts, the page's own included, before the file loads; parallelSafe runs every call as one part.
+// A task of its own between frames, so worker messages run; a timer chain can be throttled to one wake a minute
+const channel = new MessageChannel();
+const nextTask = () => new Promise( ( settle ) =>
+{
+	channel.port1.onmessage = settle;
+	channel.port2.postMessage( 0 );
+} );
+
+window.runRiv = async ( name, seconds, { parts, parallelSafe } = {} ) =>
+{
+	const lines = [];
+	let done = false;
+	const print = ( text ) =>
+	{
+		lines.push( text );
+		done ||= text.includes( 'BENCH RESULT' );
+	};
+	const createHarness = ( await import( '/harness/web_scripting_page.mjs' ) ).default;
+	const Module = await createHarness( { print, printErr: print } );
+	if ( parts !== undefined )
+	{
+		Module.riveScripting.parallelParts = parts;
+	}
+	if ( parallelSafe )
+	{
+		Module._harness_parallel_safe();
+	}
+	const bytes = new Uint8Array( await ( await fetch( `out/parallel/${name}.riv` ) ).arrayBuffer() );
+	const ptr = Module._malloc( bytes.length );
+	Module.HEAPU8.set( bytes, ptr );
+	if ( !Module._harness_import( ptr, bytes.length ) )
+	{
+		return { error: 'import failed', lines };
+	}
+	Module._free( ptr );
+	await Module.riveScripting.prepare();
+	Module._harness_run( 1 );
+	const deadline = performance.now() + seconds * 1000;
+	while ( !done && performance.now() < deadline )
+	{
+		await nextTask();
+		Module._harness_frames( 1 );
+	}
+	return { done, lines, crossOriginIsolated: self.crossOriginIsolated };
+};
+window.ready = true;
+</script>
