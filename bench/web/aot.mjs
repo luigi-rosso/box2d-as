@@ -3,7 +3,7 @@
 // The port on WAMR AOT (rive-cli's bench/as, the SIMD artifact) interleaved with the same release build on V8
 // and native Box2D, single threaded, every run timed from step 1 on. Appends to a jsonl bench.mjs --table= reads.
 //   ROUNDS=3 node bench/web/aot.mjs
-// RIVE and RIVE_WAMRC name rive-cli and wamrc, rive-pinefall's by default.
+// RIVE and RIVE_WAMRC name rive-cli and wamrc, verify/toolchain.sh's by default.
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, mkdirSync } from 'node:fs';
@@ -14,16 +14,16 @@ import { recordingHashes, SCENES } from './core.mjs';
 const here = dirname( fileURLToPath( import.meta.url ) );
 const root = join( here, '..', '..' );
 const project = join( root, 'bench', 'as' );
-const rive = process.env.RIVE ?? `${process.env.HOME}/Projects/rive-pinefall/packages/rive-cli/out/release/rive`;
-const wamrc = process.env.RIVE_WAMRC ?? `${process.env.HOME}/Projects/tools/wamrc`;
+const toolchain = ( name ) =>
+	execFileSync( 'bash', [ '-c', `source "${root}/verify/toolchain.sh" && echo "$${name}"` ], { encoding: 'utf8' } ).trim();
+const rive = process.env.RIVE ?? toolchain( 'RIVE' );
+const wamrc = process.env.RIVE_WAMRC ?? toolchain( 'RIVE_WAMRC' );
 const rounds = Number( process.env.ROUNDS ?? 3 );
 // scene:steps; bench/as's SCENE define is the scene's index in verify/scenes
 const scenes = ( process.env.SCENES ?? 'large_pyramid:100 many_bodies:100 joint_grid:100 rain:360 smash:120 ' +
 	'spinner:300 tumbler:200 pyramid:300' ).split( /\s+/ ).filter( Boolean ).map( ( e ) => e.split( ':' ) );
 
-execFileSync( 'rsync', [ '-a', '--delete', `${root}/lib/`, `${project}/lib/` ] );
-mkdirSync( join( project, 'scenes' ), { recursive: true } );
-execFileSync( 'sh', [ '-c', `sed 's|"../../lib/|"../lib/|' "${root}/verify/scenes/scenes.as" > "${project}/scenes/scenes.as"` ] );
+execFileSync( join( project, 'sync.sh' ) );
 
 mkdirSync( join( here, 'out' ), { recursive: true } );
 const stamp = new Date().toISOString().replace( /[-:]/g, '' ).slice( 0, 15 );

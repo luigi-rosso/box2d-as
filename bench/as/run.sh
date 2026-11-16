@@ -7,8 +7,8 @@
 # Writes out/session_<timestamp>.log and prints the table.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
-RIVE=${RIVE:-$HOME/Projects/rive-pinefall/packages/rive-cli/out/release/rive}
-WAMRC=${RIVE_WAMRC:-$HOME/Projects/tools/wamrc}
+. "$HERE/../../verify/toolchain.sh"
+WAMRC=$RIVE_WAMRC
 ROUNDS=${ROUNDS:-3}
 NATIVE_REPEATS=${NATIVE_REPEATS:-3}
 # scene:steps:define, run on the AOT tier; the define is the scene's index in verify/scenes, listed in main.as
@@ -18,8 +18,7 @@ INTERP_SCENES=${INTERP_SCENES:-tumbler:200:17}
 CACHE=${RIVE_AOT_CACHE_DIR:-$HERE/out/aotcache}
 mkdir -p "$HERE/out" "$CACHE"
 LOG="$HERE/out/session_$(date +%Y%m%d_%H%M%S).log"
-rsync -a --delete "$HERE/../../lib/" "$HERE/lib/"
-mkdir -p "$HERE/scenes" && sed "s|\"../../lib/|\"../lib/|" "$HERE/../../verify/scenes/scenes.as" > "$HERE/scenes/scenes.as"
+"$HERE/sync.sh"
 # The scalar artifact bakes from a copy of the project with wasmSimd: off, outside it so the CLI does not
 # compile the copy as part of the project; one per worktree. WASM_SIMD=off runs every scene on it.
 SCALAR_PROJECT=${TMPDIR:-/tmp}/box2d_bench_scalar_$(echo "$HERE" | md5 | cut -c1-8)

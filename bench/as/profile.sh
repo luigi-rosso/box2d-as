@@ -6,16 +6,15 @@
 # The trace bundle records the environment, so it stays in OUT (default a temp dir).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
-RIVE=${RIVE:-$HOME/Projects/rive-pinefall/packages/rive-cli/out/release/rive}
-WAMRC=${RIVE_WAMRC:-$HOME/Projects/tools/wamrc}
+. "$HERE/../../verify/toolchain.sh"
+WAMRC=$RIVE_WAMRC
 SCENE=${1:-12}
 STEPS=${2:-300}
 SECONDS_=${3:-15}
 OUT=${OUT:-$(mktemp -d)}
 CACHE=${RIVE_AOT_CACHE_DIR:-$OUT/aotcache}
 mkdir -p "$OUT" "$CACHE"
-rsync -a --delete "$HERE/../../lib/" "$HERE/lib/"
-mkdir -p "$HERE/scenes" && sed "s|\"../../lib/|\"../lib/|" "$HERE/../../verify/scenes/scenes.as" > "$HERE/scenes/scenes.as"
+"$HERE/sync.sh"
 # WASM_SIMD=off bakes the scalar artifact from a copy of the project with wasmSimd: off
 PROJECT=$HERE
 if [ "${WASM_SIMD:-on}" = off ]; then

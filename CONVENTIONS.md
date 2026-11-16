@@ -12,8 +12,7 @@ results bit for bit. A difference is either float drift we can explain or a bug.
 ## Toolchain
 
 ```sh
-RASC=~/Projects/rive-pinefall/packages/rasc/animascript/out/release/rasc
-AS_STD=~/Projects/rive-pinefall/packages/rasc/animascript/std
+source verify/toolchain.sh   # RASC and AS_STD from a rive master checkout
 $RASC entry.as --path "$AS_STD" --lib "$AS_STD/assembly" --runtime stub -O -o out.wasm
 ```
 
