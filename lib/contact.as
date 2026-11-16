@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // AnimaScript port of src/contact.c
 
+import { Parallel } from "rive/parallel";
+
 import { B2_ASSERT, B2_NULL_INDEX } from "./core";
 import { B2_GRAPH_COLOR_COUNT } from "./constants";
 import {
@@ -20,16 +22,16 @@ import { b2LocalManifold, b2Manifold, b2SimplexCache, b2_emptySimplexCache } fro
 import {
 	b2CollideCapsuleAndCircle,
 	b2CollideCapsules,
-	b2CollideChainSegmentAndCapsule,
+	b2CollideChainSegmentAndCapsuleAt,
 	b2CollideChainSegmentAndCircle,
 	b2CollideChainSegmentAndPolygon,
 	b2CollideCircles,
-	b2CollidePolygonAndCapsule,
+	b2CollidePolygonAndCapsuleAt,
 	b2CollidePolygonAndCircle,
-	b2CollidePolygons,
+	b2CollidePolygonsAt,
 	b2CollideSegmentAndCapsule,
 	b2CollideSegmentAndCircle,
-	b2CollideSegmentAndPolygon,
+	b2CollideSegmentAndPolygonAt,
 } from "./manifold";
 import { b2ContactId, b2ShapeId } from "./id";
 import { B2_SHAPE_PAIR_KEY, b2AddKey, b2RemoveKey } from "./table";
@@ -277,7 +279,14 @@ const b2_contactRegistryHasFcn = b2MakeRegistry(false);
 const b2_contactRegistryPrimary = b2MakeRegistry(true);
 
 // The primary manifold function of the registry for shapeA's type against shapeB's type
-unsafe function b2ComputeLocalManifold(world: b2World, shapeIdA: i32, shapeIdB: i32, xf: b2Transform, cache: ref b2SimplexCache): b2LocalManifold {
+unsafe function b2ComputeLocalManifold(
+	world: b2World,
+	shapeIdA: i32,
+	shapeIdB: i32,
+	xf: b2Transform,
+	cache: ref b2SimplexCache,
+	workerIndex: i32,
+): b2LocalManifold {
 	let shapes = b2ArrayView(world.shapes);
 	let typeA = shapes[shapeIdA].type;
 	let typeB = shapes[shapeIdB].type;
@@ -296,22 +305,22 @@ unsafe function b2ComputeLocalManifold(world: b2World, shapeIdA: i32, shapeIdB: 
 			if (typeB == b2_capsuleShape) {
 				return b2CollideSegmentAndCapsule(shapes[shapeIdA].segment, shapes[shapeIdB].capsule, xf);
 			}
-			return b2CollideSegmentAndPolygon(shapes[shapeIdA].segment, shapes[shapeIdB].polygon, xf);
+			return b2CollideSegmentAndPolygonAt(shapes[shapeIdA].segment, shapes[shapeIdB].polygon, xf, workerIndex);
 		case b2_polygonShape:
 			if (typeB == b2_circleShape) {
 				return b2CollidePolygonAndCircle(shapes[shapeIdA].polygon, shapes[shapeIdB].circle, xf);
 			}
 			if (typeB == b2_capsuleShape) {
-				return b2CollidePolygonAndCapsule(shapes[shapeIdA].polygon, shapes[shapeIdB].capsule, xf);
+				return b2CollidePolygonAndCapsuleAt(shapes[shapeIdA].polygon, shapes[shapeIdB].capsule, xf, workerIndex);
 			}
-			return b2CollidePolygons(shapes[shapeIdA].polygon, shapes[shapeIdB].polygon, xf);
+			return b2CollidePolygonsAt(shapes[shapeIdA].polygon, shapes[shapeIdB].polygon, xf, workerIndex);
 		default:
 			B2_ASSERT(typeA == b2_chainSegmentShape);
 			if (typeB == b2_circleShape) {
 				return b2CollideChainSegmentAndCircle(shapes[shapeIdA].chainSegment, shapes[shapeIdB].circle, xf);
 			}
 			if (typeB == b2_capsuleShape) {
-				return b2CollideChainSegmentAndCapsule(shapes[shapeIdA].chainSegment, shapes[shapeIdB].capsule, xf, cache);
+				return b2CollideChainSegmentAndCapsuleAt(shapes[shapeIdA].chainSegment, shapes[shapeIdB].capsule, xf, cache, workerIndex);
 			}
 			return b2CollideChainSegmentAndPolygon(shapes[shapeIdA].chainSegment, shapes[shapeIdB].polygon, xf, cache);
 	}
@@ -323,32 +332,39 @@ export function b2CanCollide(typeA: b2ShapeType, typeB: b2ShapeType): bool {
 
 unsafe function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
 	let shapes = b2ArrayView(world.shapes);
-	let frictionCallback = world.frictionCallback;
-	if (frictionCallback == null) {
-		return b2MixFriction(shapes[shapeIdA].material.friction, shapes[shapeIdB].material.friction);
+
+	// A part cannot call a function value, so a world with a custom callback collides on the main lane
+	if (!Parallel.inPart()) {
+		let frictionCallback = world.frictionCallback;
+		if (frictionCallback != null) {
+			return frictionCallback(
+				shapes[shapeIdA].material.friction,
+				shapes[shapeIdA].material.userMaterialId,
+				shapes[shapeIdB].material.friction,
+				shapes[shapeIdB].material.userMaterialId,
+			);
+		}
 	}
 
-	return frictionCallback(
-		shapes[shapeIdA].material.friction,
-		shapes[shapeIdA].material.userMaterialId,
-		shapes[shapeIdB].material.friction,
-		shapes[shapeIdB].material.userMaterialId,
-	);
+	return b2MixFriction(shapes[shapeIdA].material.friction, shapes[shapeIdB].material.friction);
 }
 
 unsafe function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
 	let shapes = b2ArrayView(world.shapes);
-	let restitutionCallback = world.restitutionCallback;
-	if (restitutionCallback == null) {
-		return b2MixRestitution(shapes[shapeIdA].material.restitution, shapes[shapeIdB].material.restitution);
+
+	if (!Parallel.inPart()) {
+		let restitutionCallback = world.restitutionCallback;
+		if (restitutionCallback != null) {
+			return restitutionCallback(
+				shapes[shapeIdA].material.restitution,
+				shapes[shapeIdA].material.userMaterialId,
+				shapes[shapeIdB].material.restitution,
+				shapes[shapeIdB].material.userMaterialId,
+			);
+		}
 	}
 
-	return restitutionCallback(
-		shapes[shapeIdA].material.restitution,
-		shapes[shapeIdA].material.userMaterialId,
-		shapes[shapeIdB].material.restitution,
-		shapes[shapeIdB].material.userMaterialId,
-	);
+	return b2MixRestitution(shapes[shapeIdA].material.restitution, shapes[shapeIdB].material.restitution);
 }
 
 // WARNING: this should never fail to create a contact because the pair already exists in the pairSet.
@@ -628,6 +644,7 @@ export unsafe function b2UpdateContact(
 	shapeIdB: i32,
 	transformB: b2WorldTransform,
 	centerOffsetB: b2Vec2,
+	workerIndex: i32,
 ): bool {
 	// Save old manifold
 	let oldManifold = contactSim.manifold;
@@ -637,7 +654,7 @@ export unsafe function b2UpdateContact(
 	// so precision is retained far from the origin.
 	// anchorB = worldPoint - pB = rot(qA, localAnchorA) + pA - pB = anchorA + (pA - pB)
 	let relativeTransform = b2InvMulWorldTransforms(transformA, transformB);
-	let local = b2ComputeLocalManifold(world, shapeIdA, shapeIdB, relativeTransform, contactSim.cache);
+	let local = b2ComputeLocalManifold(world, shapeIdA, shapeIdB, relativeTransform, contactSim.cache, workerIndex);
 
 	contactSim.manifold = b2Manifold();
 	contactSim.manifold.normal = b2RotateVector(transformA.q, local.normal);
@@ -675,7 +692,7 @@ export unsafe function b2UpdateContact(
 	let touching = pointCount > 0;
 
 	let preSolveFcn = world.preSolveFcn;
-	if (touching && preSolveFcn != null && (contactSim.simFlags & b2_simEnablePreSolveEvents) != 0) {
+	if (!Parallel.inPart() && touching && preSolveFcn != null && (contactSim.simFlags & b2_simEnablePreSolveEvents) != 0) {
 		let idA = b2ShapeId();
 		idA.index1 = shapes[shapeIdA].id + 1;
 		idA.world0 = world.worldId;

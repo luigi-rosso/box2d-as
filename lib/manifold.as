@@ -3,7 +3,7 @@
 // AnimaScript port of src/manifold.c
 
 import { B2_ASSERT, B2_ASSERT_ENABLED, FLT_EPSILON, FLT_MAX } from "./core";
-import { B2_LINEAR_SLOP, B2_SPECULATIVE_DISTANCE } from "./constants";
+import { B2_LINEAR_SLOP, B2_MAX_WORKERS, B2_SPECULATIVE_DISTANCE } from "./constants";
 import {
 	b2Add,
 	b2ClampFloat,
@@ -47,11 +47,14 @@ function B2_MAKE_ID(A: i32, B: i32): u16 {
 	return <u16>(((A & 0xff) << 8) | (B & 0xff));
 }
 
-// C returns the polygon; here it fills b2_capsulePolygon, so a call skips zeroing and returning 36 values
-const b2_capsulePolygon = new StaticArray<b2Polygon>(1);
+// C's stack polygons, a set per worker: the capsule b2MakeCapsule returns, then b2CollidePolygons' two local polygons.
+// A declared local is zeroed on every call, and only the first count entries are read.
+const B2_WORKER_POLYGONS: i32 = 3;
+@parallel.shared const b2_workerPolygons = new StaticArray<b2Polygon>(B2_WORKER_POLYGONS * B2_MAX_WORKERS);
 
-function b2MakeCapsule(p1: b2Vec2, p2: b2Vec2, radius: f32): void {
-	ref shape = b2_capsulePolygon[0];
+// C returns the polygon; here it fills the worker's, so a call skips zeroing and returning 36 values
+function b2MakeCapsule(p1: b2Vec2, p2: b2Vec2, radius: f32, workerIndex: i32): void {
+	ref shape = b2_workerPolygons[B2_WORKER_POLYGONS * workerIndex];
 	shape.vertices[0] = p1;
 	shape.vertices[1] = p2;
 	shape.centroid = b2Lerp(p1, p2, 0.5);
@@ -475,9 +478,14 @@ export function b2CollideSegmentAndCapsule(segmentA: b2Segment, capsuleB: b2Caps
 }
 
 /// Compute the contact manifold between a polygon and capsule
-export function b2CollidePolygonAndCapsule(polygonA: ref b2Polygon, capsuleB: b2Capsule, xf: b2Transform): b2LocalManifold {
-	b2MakeCapsule(capsuleB.center1, capsuleB.center2, capsuleB.radius);
-	return b2CollidePolygons(polygonA, b2_capsulePolygon[0], xf);
+@inline export function b2CollidePolygonAndCapsule(polygonA: ref b2Polygon, capsuleB: b2Capsule, xf: b2Transform): b2LocalManifold {
+	return b2CollidePolygonAndCapsuleAt(polygonA, capsuleB, xf, 0);
+}
+
+// The At variants build C's stack polygons in workerIndex's set, so workers collide at once
+export function b2CollidePolygonAndCapsuleAt(polygonA: ref b2Polygon, capsuleB: b2Capsule, xf: b2Transform, workerIndex: i32): b2LocalManifold {
+	b2MakeCapsule(capsuleB.center1, capsuleB.center2, capsuleB.radius, workerIndex);
+	return b2CollidePolygonsAt(polygonA, b2_workerPolygons[B2_WORKER_POLYGONS * workerIndex], xf, workerIndex);
 }
 
 // Polygon clipper used to compute contact points when there are potentially two contact points.
@@ -664,11 +672,12 @@ function b2FindMaxSeparation(poly1: ref b2Polygon, poly2: ref b2Polygon): b2MaxS
 //   clip edges
 // end
 
-// C's stack polygons; a declared local is zeroed on every call, and only the first count entries are read
-const b2_localPolygons = new StaticArray<b2Polygon>(2);
-
 /// Compute the contact manifold between two polygons
-export function b2CollidePolygons(polygonA: ref b2Polygon, polygonB: ref b2Polygon, xf: b2Transform): b2LocalManifold {
+@inline export function b2CollidePolygons(polygonA: ref b2Polygon, polygonB: ref b2Polygon, xf: b2Transform): b2LocalManifold {
+	return b2CollidePolygonsAt(polygonA, polygonB, xf, 0);
+}
+
+export function b2CollidePolygonsAt(polygonA: ref b2Polygon, polygonB: ref b2Polygon, xf: b2Transform, workerIndex: i32): b2LocalManifold {
 	let origin = polygonA.vertices[0];
 	let linearSlop = B2_LINEAR_SLOP();
 	let speculativeDistance = B2_SPECULATIVE_DISTANCE();
@@ -676,7 +685,7 @@ export function b2CollidePolygons(polygonA: ref b2Polygon, polygonB: ref b2Polyg
 	// Shift to the origin in frame A for round-off, a pure translation in A's frame
 	let xfs = b2Transform(b2Sub(xf.p, origin), xf.q);
 
-	ref localPolyA = b2_localPolygons[0];
+	ref localPolyA = b2_workerPolygons[B2_WORKER_POLYGONS * workerIndex + 1];
 	localPolyA.count = polygonA.count;
 	localPolyA.radius = polygonA.radius;
 	localPolyA.vertices[0] = b2Vec2_zero;
@@ -687,7 +696,7 @@ export function b2CollidePolygons(polygonA: ref b2Polygon, polygonB: ref b2Polyg
 	}
 
 	// Put polyB in polyA's frame to reduce round-off error
-	ref localPolyB = b2_localPolygons[1];
+	ref localPolyB = b2_workerPolygons[B2_WORKER_POLYGONS * workerIndex + 2];
 	localPolyB.count = polygonB.count;
 	localPolyB.radius = polygonB.radius;
 	for (let i = 0; i < localPolyB.count; ++i) {
@@ -868,9 +877,13 @@ export function b2CollideSegmentAndCircle(segmentA: b2Segment, circleB: b2Circle
 }
 
 /// Compute the contact manifold between a segment and a polygon
-export function b2CollideSegmentAndPolygon(segmentA: b2Segment, polygonB: ref b2Polygon, xf: b2Transform): b2LocalManifold {
-	b2MakeCapsule(segmentA.point1, segmentA.point2, 0.0);
-	return b2CollidePolygons(b2_capsulePolygon[0], polygonB, xf);
+@inline export function b2CollideSegmentAndPolygon(segmentA: b2Segment, polygonB: ref b2Polygon, xf: b2Transform): b2LocalManifold {
+	return b2CollideSegmentAndPolygonAt(segmentA, polygonB, xf, 0);
+}
+
+export function b2CollideSegmentAndPolygonAt(segmentA: b2Segment, polygonB: ref b2Polygon, xf: b2Transform, workerIndex: i32): b2LocalManifold {
+	b2MakeCapsule(segmentA.point1, segmentA.point2, 0.0, workerIndex);
+	return b2CollidePolygonsAt(b2_workerPolygons[B2_WORKER_POLYGONS * workerIndex], polygonB, xf, workerIndex);
 }
 
 /// Compute the contact manifold between a chain segment and a circle
@@ -946,14 +959,24 @@ export function b2CollideChainSegmentAndCircle(segmentA: b2ChainSegment, circleB
 }
 
 /// Compute the contact manifold between a chain segment and a capsule
-export function b2CollideChainSegmentAndCapsule(
+@inline export function b2CollideChainSegmentAndCapsule(
 	segmentA: b2ChainSegment,
 	capsuleB: b2Capsule,
 	xf: b2Transform,
 	cache: ref b2SimplexCache,
 ): b2LocalManifold {
-	b2MakeCapsule(capsuleB.center1, capsuleB.center2, capsuleB.radius);
-	return b2CollideChainSegmentAndPolygon(segmentA, b2_capsulePolygon[0], xf, cache);
+	return b2CollideChainSegmentAndCapsuleAt(segmentA, capsuleB, xf, cache, 0);
+}
+
+export function b2CollideChainSegmentAndCapsuleAt(
+	segmentA: b2ChainSegment,
+	capsuleB: b2Capsule,
+	xf: b2Transform,
+	cache: ref b2SimplexCache,
+	workerIndex: i32,
+): b2LocalManifold {
+	b2MakeCapsule(capsuleB.center1, capsuleB.center2, capsuleB.radius, workerIndex);
+	return b2CollideChainSegmentAndPolygon(segmentA, b2_workerPolygons[B2_WORKER_POLYGONS * workerIndex], xf, cache);
 }
 
 function b2ClipSegments(

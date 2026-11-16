@@ -560,6 +560,9 @@ export class b2DynamicTree {
 	/// Rebuild orders the nodes so the children follow parents. Cache friendly for queries and
 	/// refitting. The order can be disrupted by proxy creation.
 	dfsOrdered: bool = false;
+
+	/// A rebuild is built in swapNodes and b2DynamicTree_FinishRebuild has yet to swap it in
+	rebuildPending: bool = false;
 }
 
 /**

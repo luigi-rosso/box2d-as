@@ -3,6 +3,8 @@
 // AnimaScript port of src/broad_phase.h and the world independent part of src/broad_phase.c.
 // lib/broad_phase.as re-exports this and adds the parts that read the world.
 
+import { Parallel, SharedList } from "rive/parallel";
+
 import { B2_ASSERT, B2_ASSERT_ENABLED, B2_ENABLE_VALIDATION } from "./core";
 import { b2AABB, b2MaxInt, b2MinInt } from "./math_functions";
 import { b2DynamicTree, b2TreeNode } from "./collision";
@@ -62,6 +64,9 @@ export class b2BroadPhase {
 	siblingBuffer: StaticArray<i32> = b2_emptySiblings;
 	pairKeyBuffer: StaticArray<u64> = new StaticArray<u64>(0);
 	tempKeyBuffer: StaticArray<u64> = new StaticArray<u64>(0);
+
+	// The update of the stale trees is reserved and waits for b2FinishTreeUpdate; the solver's parallel call builds it
+	treeUpdatePending: bool = false;
 
 	constructor() {
 		for (let i = 0; i < b2_bodyTypeCount; ++i) {
@@ -188,6 +193,9 @@ export class b2PairContext<F> {
 	proxyStack: StaticArray<i32> = new StaticArray<i32>(B2_TREE_STACK_SIZE);
 	pairStack: StaticArray<b2IndexPair> = new StaticArray<b2IndexPair>(B2_TREE_STACK_SIZE);
 
+	// Where a parallel part appends its keys, since pairKeys would grow; a full list counts the keys it missed
+	sharedKeys: SharedList<u64> = new SharedList<u64>(0);
+
 	constructor(filter: F, pairSet: b2HashSet, pairKeys: Array<u64>) {
 		this.filter = filter;
 		this.pairSet = pairSet;
@@ -254,7 +262,11 @@ export function b2FlushCandidatePairs<F>(context: b2PairContext<F>): void {
 		}
 
 		// The pair passed the gauntlet. A new contact will be created.
-		pairKeys.push(B2_SHAPE_PAIR_KEY(shapeIdA, shapeIdB));
+		if (Parallel.inPart()) {
+			context.sharedKeys.push(B2_SHAPE_PAIR_KEY(shapeIdA, shapeIdB));
+		} else {
+			pairKeys.push(B2_SHAPE_PAIR_KEY(shapeIdA, shapeIdB));
+		}
 	}
 }
 

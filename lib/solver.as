@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // AnimaScript port of src/solver.c
 
+import { Parallel } from "rive/parallel";
+
 import { B2_ASSERT, B2_ASSERT_ENABLED, B2_NULL_INDEX, UINT16_MAX, UINT32_MAX, UINT8_MAX, b2AtomicInt, b2AtomicU32, b2GetMilliseconds, b2GetMillisecondsAndReset, b2GetTicks, b2Log } from "./core";
 import { B2_GRAPH_COLOR_COUNT, B2_MAX_ROTATION, B2_MAX_TASKS, B2_MAX_WORKERS, B2_LINEAR_SLOP, B2_SPECULATIVE_DISTANCE, B2_TIME_TO_SLEEP } from "./constants";
 import {
@@ -48,8 +50,14 @@ import { b2CTZ64 } from "./ctz";
 import { b2GetIdCapacity } from "./id_pool";
 import { b2OffsetAABB } from "./aabb";
 import { b2ComputeTimeOfImpact, b2MakeProxy } from "./distance";
-import { b2DynamicTree_EnlargeProxy, b2DynamicTree_GetProxyBounds, b2DynamicTree_OverlapAABB, b2DynamicTree_Refit } from "./dynamic_tree";
-import { B2_PROXY_ID, b2BroadPhase_MarkProxyMoved, b2ValidateBroadphase, b2ValidateNoEnlarged } from "./broad_phase";
+import {
+	B2_TREE_STACK_SIZE,
+	b2DynamicTree_EnlargeProxy,
+	b2DynamicTree_GetProxyBounds,
+	b2DynamicTree_OverlapAABBWith,
+	b2DynamicTree_Refit,
+} from "./dynamic_tree";
+import { B2_PROXY_ID, b2BroadPhase_MarkProxyMoved, b2FinishTreeUpdate, b2ValidateBroadphase, b2ValidateNoEnlarged } from "./broad_phase";
 import {
 	b2ArrayData,
 	b2Body,
@@ -260,6 +268,12 @@ export class b2StepContext {
 
 	mainClaimed: b2AtomicInt = b2AtomicInt();
 
+	// How many workers sleep on the sync bits, which only the parts of a parallel call do
+	sleepingWorkers: b2AtomicInt = b2AtomicInt();
+
+	// Whether parallel parts finalizing bodies sweep the fast ones too, or leave them to the main lane
+	parallelContinuous: bool = false;
+
 	constructor(world: b2World) {
 		this.world = world;
 		this.graph = world.constraintGraph;
@@ -310,40 +324,94 @@ export function b2MakeSoft(hertz: f32, zeta: f32, h: f32): b2Softness {
 const ITERATIONS: i32 = 1;
 const RELAX_ITERATIONS: i32 = 1;
 
-// Single threaded stand-ins for the C atomics, kept so the synchronization code reads as in C.
-@inline function b2AtomicLoadInt(a: b2AtomicInt): i32 {
-	return a.value;
+// C's atomics, on the value's address. The parts of a parallel call run them as atomics; elsewhere one thread runs
+// the step and they are a plain read and write.
+@inline unsafe function b2AtomicLoadInt(address: usize): i32 {
+	return Parallel.inPart() ? atomic.load<i32>(address) : load<i32>(address);
 }
 
-@inline function b2AtomicStoreInt(a: ref b2AtomicInt, value: i32): void {
-	a.value = value;
+@inline unsafe function b2AtomicStoreInt(address: usize, value: i32): void {
+	if (Parallel.inPart()) {
+		atomic.store<i32>(address, value);
+	} else {
+		store<i32>(address, value);
+	}
 }
 
-@inline function b2AtomicFetchAddInt(a: ref b2AtomicInt, increment: i32): i32 {
-	let value = a.value;
-	a.value = value + increment;
+@inline unsafe function b2AtomicFetchAddInt(address: usize, increment: i32): i32 {
+	if (Parallel.inPart()) {
+		return atomic.add<i32>(address, increment);
+	}
+
+	let value = load<i32>(address);
+	store<i32>(address, value + increment);
 	return value;
 }
 
-@inline function b2AtomicCompareExchangeInt(a: ref b2AtomicInt, expected: i32, desired: i32): bool {
-	if (a.value == expected) {
-		a.value = desired;
+@inline unsafe function b2AtomicCompareExchangeInt(address: usize, expected: i32, desired: i32): bool {
+	if (Parallel.inPart()) {
+		return atomic.cmpxchg<i32>(address, expected, desired) == expected;
+	}
+
+	if (load<i32>(address) == expected) {
+		store<i32>(address, desired);
 		return true;
 	}
 	return false;
 }
 
-@inline function b2AtomicLoadU32(a: b2AtomicU32): u32 {
-	return a.value;
+@inline unsafe function b2AtomicLoadU32(address: usize): u32 {
+	return <u32>b2AtomicLoadInt(address);
 }
 
-@inline function b2AtomicStoreU32(a: ref b2AtomicU32, value: u32): void {
-	a.value = value;
+@inline unsafe function b2AtomicStoreU32(address: usize, value: u32): void {
+	b2AtomicStoreInt(address, <i32>value);
+}
+
+// Where C's atomics live: in the step context, in a stage and in a sync block
+const SC_SYNCBITS = offsetof<b2StepContext>("atomicSyncBits");
+const SC_MAINCLAIMED = offsetof<b2StepContext>("mainClaimed");
+const SC_BULLETBODYCOUNT = offsetof<b2StepContext>("bulletBodyCount");
+const SC_ANYRESTITUTION = offsetof<b2StepContext>("anyRestitution");
+const SC_SLEEPINGWORKERS = offsetof<b2StepContext>("sleepingWorkers");
+
+@inline unsafe function b2StepAtomic(context: b2StepContext, offset: usize): usize {
+	return changetype<usize>(context) + offset;
+}
+
+@inline unsafe function b2CompletionCount(stage: b2SolverStage): usize {
+	return changetype<usize>(stage) + offsetof<b2SolverStage>("completionCount");
+}
+
+@inline unsafe function b2SyncIndex(blocks: StaticArray<b2SyncBlock>, index: i32): usize {
+	return changetype<usize>(blocks) + <usize>index * sizeof<b2SyncBlock>() + offsetof<b2SyncBlock>("syncIndex");
 }
 
 function b2Pause(): void {}
 
-function b2Yield(): void {}
+// C yields the core to another thread here. A part of a parallel call cannot, so a worker that has yielded this many
+// times in one wait sleeps on the sync bits instead, until b2PublishSyncBits wakes it or this long has passed, in ns.
+const B2_WORKER_SPIN_YIELDS: i32 = 2048;
+const B2_WORKER_SLEEP_NANOS: i64 = 1000000;
+
+@inline unsafe function b2YieldWorker(context: b2StepContext, syncBits: u32, yieldCount: i32): void {
+	if (Parallel.inPart() && yieldCount > B2_WORKER_SPIN_YIELDS) {
+		let sleepingWorkers = b2StepAtomic(context, SC_SLEEPINGWORKERS);
+		atomic.add<i32>(sleepingWorkers, 1);
+		atomic.wait<u32>(b2StepAtomic(context, SC_SYNCBITS), syncBits, B2_WORKER_SLEEP_NANOS);
+		atomic.sub<i32>(sleepingWorkers, 1);
+	}
+}
+
+// C's store of the sync bits, which here also wakes the workers that sleep on them. A worker that is about to sleep
+// on the old bits finds them changed and does not.
+@inline unsafe function b2PublishSyncBits(context: b2StepContext, syncBits: u32): void {
+	let address = b2StepAtomic(context, SC_SYNCBITS);
+	b2AtomicStoreU32(address, syncBits);
+	if (Parallel.inPart() && atomic.load<i32>(b2StepAtomic(context, SC_SLEEPINGWORKERS)) != 0) {
+		atomic.notify(address, -1);
+	}
+}
 
 class b2WorkerContext {
 	context: b2StepContext? = null;
@@ -483,7 +551,8 @@ unsafe function b2IntegratePositionsTask(block: b2SolverBlock, context: b2StepCo
 
 const B2_MAX_CONTINUOUS_SENSOR_HITS: i32 = 8;
 
-class b2ContinuousContext {
+// C's stack context of b2SolveContinuous. Each worker's task context keeps one, with its world; the sweeps never nest.
+export class b2ContinuousContext {
 	world: b2World? = null;
 	// C's fastBodySim pointer; the awake sims do not move during the sweep
 	fastBodySim: usize = 0;
@@ -498,6 +567,8 @@ class b2ContinuousContext {
 	sensorHits: FixedArray<b2SensorHit, 8>;
 	sensorFractions: FixedArray<f32, 8>;
 	sensorCount: i32 = 0;
+	// C's stack of the tree query
+	queryStack: StaticArray<i32> = new StaticArray<i32>(B2_TREE_STACK_SIZE);
 
 	// The tree query visitor
 	visit(proxyId: i32, userData: u64): bool {
@@ -559,8 +630,8 @@ unsafe function b2ContinuousQueryCallback(proxyId: i32, userData: u64, continuou
 		return true;
 	}
 
-	// Custom user filtering
-	if (world.shapes[shapeId].enableCustomFiltering || world.shapes[fastShapeId].enableCustomFiltering) {
+	// Custom user filtering. A part cannot call a function value, so a world with one sweeps on the main lane.
+	if (!Parallel.inPart() && (world.shapes[shapeId].enableCustomFiltering || world.shapes[fastShapeId].enableCustomFiltering)) {
 		let customFilterFcn = world.customFilterFcn;
 		if (customFilterFcn != null) {
 			let idA = b2ShapeId(shapeId + 1, world.worldId, world.shapes[shapeId].generation);
@@ -639,7 +710,12 @@ unsafe function b2ContinuousQueryCallback(proxyId: i32, userData: u64, continuou
 			}
 		}
 
-		if (didHit && (world.shapes[shapeId].enablePreSolveEvents || world.shapes[fastShapeId].enablePreSolveEvents) && world.preContinuousFcn != null) {
+		if (
+			!Parallel.inPart() &&
+			didHit &&
+			(world.shapes[shapeId].enablePreSolveEvents || world.shapes[fastShapeId].enablePreSolveEvents) &&
+			world.preContinuousFcn != null
+		) {
 			let shapeIdA = b2ShapeId(shapeId + 1, world.worldId, world.shapes[shapeId].generation);
 			let shapeIdB = b2ShapeId(fastShapeId + 1, world.worldId, world.shapes[fastShapeId].generation);
 
@@ -656,9 +732,6 @@ unsafe function b2ContinuousQueryCallback(proxyId: i32, userData: u64, continuou
 	// Continue query
 	return true;
 }
-
-// C's stack context of b2SolveContinuous; the sweeps never nest
-const b2_continuousContext = new b2ContinuousContext();
 
 // The fat AABB margin of an AABB
 @inline function b2InflateAABB(aabb: b2AABB, margin: f32): b2AABB {
@@ -693,8 +766,7 @@ unsafe function b2SolveContinuous(world: b2World, bodySimIndex: i32, taskContext
 	let dynamicTree = world.broadPhase.trees[b2_dynamicBody];
 	let fastBodyId = load<i32>(fastBodySim + SIM_BODYID);
 
-	let context = b2_continuousContext;
-	context.world = world;
+	let context = taskContext.continuousContext;
 	context.sweep = sweep;
 	context.base = base;
 	context.fastBodySim = fastBodySim;
@@ -727,11 +799,12 @@ unsafe function b2SolveContinuous(world: b2World, bodySimIndex: i32, taskContext
 
 		let sweptBox = b2AABB_Union(box1, box2);
 
-		b2DynamicTree_OverlapAABB<b2ContinuousContext>(staticTree, sweptBox, B2_DEFAULT_MASK_BITS, context);
+		let stack = context.queryStack;
+		b2DynamicTree_OverlapAABBWith<b2ContinuousContext>(staticTree, sweptBox, B2_DEFAULT_MASK_BITS, context, stack);
 
 		if (isBullet) {
-			b2DynamicTree_OverlapAABB<b2ContinuousContext>(kinematicTree, sweptBox, B2_DEFAULT_MASK_BITS, context);
-			b2DynamicTree_OverlapAABB<b2ContinuousContext>(dynamicTree, sweptBox, B2_DEFAULT_MASK_BITS, context);
+			b2DynamicTree_OverlapAABBWith<b2ContinuousContext>(kinematicTree, sweptBox, B2_DEFAULT_MASK_BITS, context, stack);
+			b2DynamicTree_OverlapAABBWith<b2ContinuousContext>(dynamicTree, sweptBox, B2_DEFAULT_MASK_BITS, context, stack);
 		}
 	}
 
@@ -820,11 +893,14 @@ unsafe function b2SolveContinuous(world: b2World, bodySimIndex: i32, taskContext
 		}
 	}
 
-	// Push sensor hits on the the task context for serial processing.
-	for (let i = 0; i < context.sensorCount; ++i) {
-		// Skip any sensor hits that occurred after a solid hit
-		if (context.sensorFractions[i] < context.fraction) {
-			taskContext.sensorHits.push(context.sensorHits[i]);
+	// Push sensor hits on the the task context for serial processing. A part cannot push, so a world with sensors
+	// sweeps on the main lane.
+	if (!Parallel.inPart()) {
+		for (let i = 0; i < context.sensorCount; ++i) {
+			// Skip any sensor hits that occurred after a solid hit
+			if (context.sensorFractions[i] < context.fraction) {
+				taskContext.sensorHits.push(context.sensorHits[i]);
+			}
 		}
 	}
 }
@@ -945,7 +1021,7 @@ unsafe function b2FinalizeBody(world: b2World, stepContext: b2StepContext, taskC
 			// Store fast bullets for processing later.
 			// This is deterministic because the order of TOI sweeps doesn't matter.
 			if ((simFlags & b2_isBullet) != 0) {
-				let bulletIndex = b2AtomicFetchAddInt(stepContext.bulletBodyCount, 1);
+				let bulletIndex = b2AtomicFetchAddInt(b2StepAtomic(stepContext, SC_BULLETBODYCOUNT), 1);
 				stepContext.bulletBodies[bulletIndex] = simIndex;
 			} else {
 				result |= b2_finalizeContinuous;
@@ -1016,7 +1092,7 @@ unsafe function b2FinalizeBody(world: b2World, stepContext: b2StepContext, taskC
 	return result;
 }
 
-unsafe function b2FinalizeBodiesTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
+export unsafe function b2FinalizeBodiesTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
 	let world = stepContext.world;
 
 	B2_ASSERT(endIndex <= world.bodyMoveEvents.length);
@@ -1026,11 +1102,64 @@ unsafe function b2FinalizeBodiesTask(startIndex: i32, endIndex: i32, workerIndex
 	for (let simIndex = startIndex; simIndex < endIndex; ++simIndex) {
 		let result = b2FinalizeBody(world, stepContext, taskContext, simIndex);
 		if ((result & b2_finalizeUnstable) != 0) {
-			let sim = b2ArrayData(stepContext.sims) + <usize>simIndex * sizeof<b2BodySim>();
-			b2LogUnstableBody(world, load<i32>(sim + SIM_BODYID));
+			// A part cannot log; b2FinishParallelFinalize does
+			if (Parallel.inPart()) {
+				taskContext.unstableCount += 1;
+			} else {
+				b2LogUnstableBody(world, b2SimBodyId(stepContext, simIndex));
+			}
 		}
 		if ((result & b2_finalizeContinuous) != 0) {
-			b2SolveContinuous(world, simIndex, taskContext, stepContext.dt);
+			if (Parallel.inPart() && stepContext.parallelContinuous == false) {
+				taskContext.deferredBodies[taskContext.deferredBodyCount] = simIndex;
+				taskContext.deferredBodyCount += 1;
+			} else {
+				b2SolveContinuous(world, simIndex, taskContext, stepContext.dt);
+			}
+		}
+	}
+}
+
+@inline unsafe function b2SimBodyId(stepContext: b2StepContext, simIndex: i32): i32 {
+	return load<i32>(b2ArrayData(stepContext.sims) + <usize>simIndex * sizeof<b2BodySim>() + SIM_BODYID);
+}
+
+// Readies each worker's task context for parts to finalize bodyCount bodies, and says whether they sweep the fast ones
+export function b2PrepareParallelFinalize(world: b2World, stepContext: b2StepContext, bodyCount: i32): void {
+	for (let i = 0; i < world.workerCount; ++i) {
+		let taskContext = world.taskContexts[i];
+		if (taskContext.deferredBodies.length < bodyCount) {
+			taskContext.deferredBodies = new StaticArray<i32>(bodyCount + (bodyCount >> 1));
+		}
+		taskContext.deferredBodyCount = 0;
+		taskContext.unstableCount = 0;
+	}
+
+	// A sweep may push sensor hits and call the custom filter and the pre-continuous callback, which parts cannot
+	stepContext.parallelContinuous = world.sensors.length == 0 && world.customFilterFcn == null && world.preContinuousFcn == null;
+}
+
+// What b2FinalizeBodiesTask does for the fast bodies and the unstable bodies the parts left to the main lane. The
+// sweeps read only their own body and static shapes, so their order does not matter.
+export unsafe function b2FinishParallelFinalize(world: b2World, stepContext: b2StepContext): void {
+	let unstableCount = 0;
+	for (let i = 0; i < world.workerCount; ++i) {
+		let taskContext = world.taskContexts[i];
+		let deferred = taskContext.deferredBodies;
+		for (let k = 0; k < taskContext.deferredBodyCount; ++k) {
+			b2SolveContinuous(world, deferred[k], taskContext, stepContext.dt);
+		}
+		unstableCount += taskContext.unstableCount;
+	}
+
+	// C logs each as it finds it; these are the same bodies in sim order
+	if (unstableCount > 0) {
+		let states = b2ArrayData(stepContext.states);
+		for (let simIndex = 0; simIndex < stepContext.sims.length; ++simIndex) {
+			let state = states + <usize>simIndex * sizeof<b2BodyState>();
+			if (b2IsValidVec2(load<b2Vec2>(state + BS_V)) == false || b2IsValidFloat(load<f32>(state + BS_W)) == false) {
+				b2LogUnstableBody(world, b2SimBodyId(stepContext, simIndex));
+			}
 		}
 	}
 }
@@ -1075,7 +1204,7 @@ function b2ComputeBlockCount(itemCount: i32, minSize: i32, maxBlockCount: i32): 
 // from the same parameters used by b2ComputeBlockCount. The atomic claim counter is zeroed
 // so workers can CAS (0, 1) on the first stage that owns these blocks.
 // C passes a pointer into the block buffer; here the buffer and the offset.
-function b2InitBlocks(blocks: StaticArray<b2SyncBlock>, offset: i32, dim: b2BlockDim, itemCount: i32, blockType: u8, colorIndex: u8): void {
+unsafe function b2InitBlocks(blocks: StaticArray<b2SyncBlock>, offset: i32, dim: b2BlockDim, itemCount: i32, blockType: u8, colorIndex: u8): void {
 	if (dim.count == 0) {
 		return;
 	}
@@ -1094,7 +1223,7 @@ function b2InitBlocks(blocks: StaticArray<b2SyncBlock>, offset: i32, dim: b2Bloc
 		b.block.count = <u16>blockSize;
 		b.block.blockType = blockType;
 		b.block.colorIndex = colorIndex;
-		b2AtomicStoreInt(b.syncIndex, 0);
+		b2AtomicStoreInt(b2SyncIndex(blocks, offset + i), 0);
 	}
 
 	// The last block may not be full
@@ -1102,7 +1231,7 @@ function b2InitBlocks(blocks: StaticArray<b2SyncBlock>, offset: i32, dim: b2Bloc
 }
 
 // Returns the next stage index, as C returns stage + 1.
-function b2InitStage(
+unsafe function b2InitStage(
 	stages: StaticArray<b2SolverStage>,
 	stageIndex: i32,
 	type: b2SolverStageType,
@@ -1117,14 +1246,14 @@ function b2InitStage(
 	stage.blockStart = blockStart;
 	stage.blockCount = blockCount;
 	stage.colorIndex = colorIndex;
-	b2AtomicStoreInt(stage.completionCount, 0);
+	b2AtomicStoreInt(b2CompletionCount(stage), 0);
 	return stageIndex + 1;
 }
 
 // Initialize one stage per color for each iteration. Used for warm start, solve, relax, and restitution.
 // All iterations of a given color share the same b2SyncBlock array so the per-block syncIndex
 // grows monotonically across stages within that color.
-function b2InitColorStages(
+unsafe function b2InitColorStages(
 	stages: StaticArray<b2SolverStage>,
 	stageIndex: i32,
 	type: b2SolverStageType,
@@ -1141,6 +1270,24 @@ function b2InitColorStages(
 		}
 	}
 	return stageIndex;
+}
+
+// Runs the solver stages of a step on parallel calls, or answers false to leave them here
+export type b2ParallelSolveFcn = (context: b2StepContext) => bool;
+
+let b2_parallelSolve: b2ParallelSolveFcn? = null;
+
+export function b2SetParallelSolve(fcn: b2ParallelSolveFcn?): void {
+	b2_parallelSolve = fcn;
+}
+
+// Finalizes a step's bodyCount awake bodies on parallel calls, or answers false to leave them here
+export type b2ParallelFinalizeFcn = (context: b2StepContext, bodyCount: i32) => bool;
+
+let b2_parallelFinalize: b2ParallelFinalizeFcn? = null;
+
+export function b2SetParallelFinalize(fcn: b2ParallelFinalizeFcn?): void {
+	b2_parallelFinalize = fcn;
 }
 
 unsafe function b2ExecuteBlock(stage: b2SolverStage, context: b2StepContext, block: b2SolverBlock, workerIndex: i32): void {
@@ -1232,7 +1379,8 @@ unsafe function b2ExecuteStage(stage: b2SolverStage, context: b2StepContext, pre
 	for (let i = 0; i < blockCount; ++i) {
 		// Read before attempting the CAS.
 		ref syncBlock = blocks[blockStart + blockIndex];
-		if (b2AtomicLoadInt(syncBlock.syncIndex) == previousSyncIndex && b2AtomicCompareExchangeInt(syncBlock.syncIndex, previousSyncIndex, syncIndex)) {
+		let blockSync = b2SyncIndex(blocks, blockStart + blockIndex);
+		if (b2AtomicLoadInt(blockSync) == previousSyncIndex && b2AtomicCompareExchangeInt(blockSync, previousSyncIndex, syncIndex)) {
 			B2_ASSERT(stage.type != b2_stagePrepareContacts || syncIndex < 2);
 			B2_ASSERT(completedCount < blockCount);
 
@@ -1248,7 +1396,7 @@ unsafe function b2ExecuteStage(stage: b2SolverStage, context: b2StepContext, pre
 		}
 	}
 
-	b2AtomicFetchAddInt(stage.completionCount, completedCount);
+	b2AtomicFetchAddInt(b2CompletionCount(stage), completedCount);
 }
 
 // Execute a stage on worker 0 (main thread).
@@ -1263,7 +1411,7 @@ unsafe function b2ExecuteMainStage(stage: b2SolverStage, context: b2StepContext,
 	if (blockCount == 1) {
 		b2ExecuteBlock(stage, context, stage.blocks[stage.blockStart].block, workerIndex);
 	} else {
-		b2AtomicStoreU32(context.atomicSyncBits, syncBits);
+		b2PublishSyncBits(context, syncBits);
 
 		let syncIndex = <i32>((syncBits >> 16) & 0xffff);
 		B2_ASSERT(syncIndex > 0);
@@ -1272,11 +1420,12 @@ unsafe function b2ExecuteMainStage(stage: b2SolverStage, context: b2StepContext,
 		b2ExecuteStage(stage, context, previousSyncIndex, syncIndex, workerIndex);
 
 		// Spin waiting for thieves to finish
-		while (b2AtomicLoadInt(stage.completionCount) != blockCount) {
+		let completionCount = b2CompletionCount(stage);
+		while (b2AtomicLoadInt(completionCount) != blockCount) {
 			b2Pause();
 		}
 
-		b2AtomicStoreInt(stage.completionCount, 0);
+		b2AtomicStoreInt(completionCount, 0);
 	}
 }
 
@@ -1291,8 +1440,11 @@ unsafe function b2ExecuteMainStage(stage: b2SolverStage, context: b2StepContext,
 
 // Parallel solver task
 unsafe function b2SolverTask(workerContext: b2WorkerContext): void {
-	let workerIndex = workerContext.workerIndex;
-	let context = workerContext.context!;
+	b2SolverWorker(workerContext.context!, workerContext.workerIndex);
+}
+
+// b2SolverTask for worker workerIndex of the step, which a part of a parallel call runs as its own
+export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32): void {
 	let activeColorCount = context.activeColorCount;
 	let stages = context.stages;
 	let world = context.world;
@@ -1303,7 +1455,7 @@ unsafe function b2SolverTask(workerContext: b2WorkerContext): void {
 		// out of order, has fewer threads than workerCount, or runs the task synchronously
 		// inside enqueueTaskFcn. Whoever wins the CAS becomes the orchestrator; the loser
 		// returns and lets the spinner-only path handle workers >0.
-		if (b2AtomicCompareExchangeInt(context.mainClaimed, 0, 1) == false) {
+		if (b2AtomicCompareExchangeInt(b2StepAtomic(context, SC_MAINCLAIMED), 0, 1) == false) {
 			return;
 		}
 
@@ -1438,7 +1590,7 @@ unsafe function b2SolverTask(workerContext: b2WorkerContext): void {
 		stageIndex += 1 + activeColorCount + ITERATIONS * activeColorCount + 1 + RELAX_ITERATIONS * activeColorCount;
 
 		let restitutionIterations = world.restitutionIterations;
-		if (restitutionIterations > 0 && b2AtomicLoadInt(context.anyRestitution) != 0) {
+		if (restitutionIterations > 0 && b2AtomicLoadInt(b2StepAtomic(context, SC_ANYRESTITUTION)) != 0) {
 			for (let j = 0; j < restitutionIterations; ++j) {
 				b2ApplyRestitution_Overflow(context);
 
@@ -1467,7 +1619,7 @@ unsafe function b2SolverTask(workerContext: b2WorkerContext): void {
 		world.profile.storeImpulses += b2MillisecondsAndReset(ticks);
 
 		// Signal workers to finish
-		b2AtomicStoreU32(context.atomicSyncBits, UINT32_MAX);
+		b2PublishSyncBits(context, UINT32_MAX);
 
 		B2_ASSERT(stageIndex + 1 == context.stageCount);
 		return;
@@ -1479,18 +1631,21 @@ unsafe function b2SolverTask(workerContext: b2WorkerContext): void {
 	while (true) {
 		// Spin until main thread bumps changes the sync bits. This can waste significant time overall, but it is necessary for
 		// parallel simulation with graph coloring.
-		let syncBits: u32 = b2AtomicLoadU32(context.atomicSyncBits);
+		let syncBitsAddress = b2StepAtomic(context, SC_SYNCBITS);
+		let syncBits: u32 = b2AtomicLoadU32(syncBitsAddress);
 		let spinCount = 0;
+		let yieldCount = 0;
 		while (syncBits == lastSyncBits) {
 			if (spinCount > 5) {
-				b2Yield();
+				yieldCount += 1;
+				b2YieldWorker(context, lastSyncBits, yieldCount);
 				spinCount = 0;
 			} else {
 				b2Pause();
 				b2Pause();
 				spinCount += 1;
 			}
-			syncBits = b2AtomicLoadU32(context.atomicSyncBits);
+			syncBits = b2AtomicLoadU32(syncBitsAddress);
 		}
 
 		if (syncBits == UINT32_MAX) {
@@ -1616,7 +1771,7 @@ export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void
 		setupTicks[0] = b2GetTicks();
 
 		// Prepare buffers for bullets
-		b2AtomicStoreInt(stepContext.bulletBodyCount, 0);
+		b2AtomicStoreInt(b2StepAtomic(stepContext, SC_BULLETBODYCOUNT), 0);
 		scratch.bulletBodies = b2ReserveIndices(scratch.bulletBodies, awakeBodyCount);
 		stepContext.bulletBodies = scratch.bulletBodies;
 
@@ -1908,8 +2063,9 @@ export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void
 		stepContext.contactPrepareSpans = contactPrepareSpans;
 		stepContext.wideContactCount = wideContactCount;
 		stepContext.jointPrepareSpans = jointPrepareSpans;
-		b2AtomicStoreU32(stepContext.atomicSyncBits, 0);
-		b2AtomicStoreInt(stepContext.mainClaimed, 0);
+		b2AtomicStoreU32(b2StepAtomic(stepContext, SC_SYNCBITS), 0);
+		b2AtomicStoreInt(b2StepAtomic(stepContext, SC_MAINCLAIMED), 0);
+		b2AtomicStoreInt(b2StepAtomic(stepContext, SC_SLEEPINGWORKERS), 0);
 
 		world.profile.solverSetup = b2MillisecondsAndReset(setupTicks);
 
@@ -1918,40 +2074,49 @@ export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void
 
 		let jointIdCapacity = b2GetIdCapacity(world.jointIdPool);
 		let contactIdCapacity = b2GetIdCapacity(world.contactIdPool);
+		// C clears each worker's bits as it queues that worker's task; no task writes another worker's
 		for (let i = 0; i < workerCount; ++i) {
 			let taskContext = world.taskContexts[i];
 			b2SetBitCountAndClear(taskContext.jointStateBitSet, <u32>jointIdCapacity);
 			b2SetBitCountAndClear(taskContext.hitEventBitSet, <u32>contactIdCapacity);
 			taskContext.hasHitEvents = false;
-
-			let context = workerContext[i];
-			context.context = stepContext;
-			context.workerIndex = i;
-
-			// Tasks run inline, as C's default enqueueTaskFcn does, which returns NULL
-			context.userTask = 0;
-			b2SolverTask(context);
-			if (world.taskCount < B2_MAX_TASKS) {
-				world.taskCount += 1;
-			}
 		}
 
-		// The calling thread of b2World_Step also enters b2SolverTask as worker 0 and races for the
-		// orchestrator slot via the CAS inside. This guarantees progress even when the user's task
-		// system can't run the queued worker 0 promptly: it might schedule out of order, have fewer
-		// threads than workerCount, or invert priority by parking the calling thread in finishTaskFcn.
-		// Whoever wins the CAS becomes the orchestrator; the loser returns and lets the spinner-only
-		// path handle workers >0.
-		let callerContext = scratch.callerContext;
-		callerContext.context = stepContext;
-		callerContext.workerIndex = 0;
-		callerContext.userTask = 0;
-		b2SolverTask(callerContext);
+		let parallelSolve = b2_parallelSolve;
+		if (parallelSolve == null || parallelSolve(stepContext) == false) {
+			for (let i = 0; i < workerCount; ++i) {
+				let context = workerContext[i];
+				context.context = stepContext;
+				context.workerIndex = i;
+
+				// Tasks run inline, as C's default enqueueTaskFcn does, which returns NULL
+				context.userTask = 0;
+				b2SolverTask(context);
+				if (world.taskCount < B2_MAX_TASKS) {
+					world.taskCount += 1;
+				}
+			}
+
+			// The calling thread of b2World_Step also enters b2SolverTask as worker 0 and races for the
+			// orchestrator slot via the CAS inside. This guarantees progress even when the user's task
+			// system can't run the queued worker 0 promptly: it might schedule out of order, have fewer
+			// threads than workerCount, or invert priority by parking the calling thread in finishTaskFcn.
+			// Whoever wins the CAS becomes the orchestrator; the loser returns and lets the spinner-only
+			// path handle workers >0.
+			let callerContext = scratch.callerContext;
+			callerContext.context = stepContext;
+			callerContext.workerIndex = 0;
+			callerContext.userTask = 0;
+			b2SolverTask(callerContext);
+		}
 
 		// Finish constraint solve and island split: inline tasks have no handle to finish
 		world.splitIslandId = B2_NULL_INDEX;
 
 		world.profile.constraints = b2MillisecondsAndReset(constraintTicks);
+
+		// C finishes the tree task here
+		b2FinishTreeUpdate(world);
 
 		let transformTicks = b2GetTicks();
 
@@ -1966,12 +2131,15 @@ export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void
 			taskContext.splitSleepTime = 0.0;
 		}
 
-		// The user tree task ran inline when it was queued, so the broad-phase is ready.
+		// The user tree task has finished, so the broad-phase is ready.
 
 		b2ValidateNoEnlarged(world.broadPhase);
 
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
-		b2ParallelFor<b2StepContext>(world, b2FinalizeBodiesTask, awakeBodyCount, 64, stepContext);
+		let parallelFinalize = b2_parallelFinalize;
+		if (parallelFinalize == null || parallelFinalize(stepContext, awakeBodyCount) == false) {
+			b2ParallelFor<b2StepContext>(world, b2FinalizeBodiesTask, awakeBodyCount, 64, stepContext);
+		}
 
 		world.profile.transforms = b2GetMilliseconds(transformTicks);
 	}
@@ -2130,7 +2298,7 @@ export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void
 
 	// Bullets are processed after the broad-phase refit so they can query the
 	// final non-bullet world.
-	let bulletBodyCount = b2AtomicLoadInt(stepContext.bulletBodyCount);
+	let bulletBodyCount = b2AtomicLoadInt(b2StepAtomic(stepContext, SC_BULLETBODYCOUNT));
 	if (bulletBodyCount > 0) {
 		let bulletTicks = b2GetTicks();
 
@@ -2187,7 +2355,7 @@ export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void
 
 	// Need to free this even if no bullets got processed.
 	stepContext.bulletBodies = b2_emptyIndices;
-	b2AtomicStoreInt(stepContext.bulletBodyCount, 0);
+	b2AtomicStoreInt(b2StepAtomic(stepContext, SC_BULLETBODYCOUNT), 0);
 
 	// Report sensor hits. This may include bullets sensor hits.
 	{

@@ -4,10 +4,16 @@
 // 7 sensors, 8 events, 9 queries, 10 mover, 11 many_bodies, 12 large_pyramid, 13 joint_grid, 14 rain, 15 smash,
 // 16 spinner, 17 tumbler. --define=STEPS=n (default the trajectory gate's step count); --define=STEPLOG logs every
 // step; --define=DELAY=s spins s seconds before the first step. One Scene_Step per frame; the scene is built in
-// init and the result logged after the last step.
+// init and the result logged after the last step. --define=PARALLEL=tasks steps on parallel calls (lib/parallel_step's
+// task bits), on at most --define=PARTS=n parts; --define=HASHLOG logs every step's state hash and the hash of its
+// trajectory record for verify/threads.sh.
+// SCENE, STEPS, PARALLEL, PARTS, HASHLOG and REPEATS also come as NAME=n words in options.txt, which wins over a
+// define, so runs that differ only in those share one compiled bake. REPEATS=n builds and runs the scene n times and
+// reports the run with the lowest mean, as bench/native takes the min over its repeats.
 
 import { Layout, Context } from "rive/host";
 import { clock } from "rive/os";
+import { Parallel } from "rive/parallel";
 import { formatFixed } from "rive/format";
 import {
 	b2Body_GetAngularVelocity,
@@ -19,8 +25,10 @@ import {
 	b2World_GetCounters,
 	b2World_GetProfile,
 } from "./lib/box2d";
+import { b2ParallelReport, b2SetParallelLimit, b2World_EnableParallel } from "./lib/parallel_step";
 // run.sh copies verify/scenes/scenes.as here, the mirror of the native bench's scenes.c
-import { Scene, Scene_Create, Scene_GetCount, Scene_GetName, Scene_Step } from "./scenes/scenes";
+import { Scene, Scene_Create, Scene_Destroy, Scene_GetCount, Scene_GetName, Scene_Step } from "./scenes/scenes";
+import { Record_Hash, Record_Write } from "./scenes/record";
 
 const STAGE_COUNT: i32 = 23;
 const WARMUP_STEPS: i32 = 1;
@@ -70,18 +78,67 @@ function stateHash(scene: Scene): u32 {
 	return h;
 }
 
+const g_options = new Map<string, i32>();
+
+function loadOptions(context: Context): void {
+	let blob = context.blob("options");
+	if (blob == null) {
+		return;
+	}
+	let words = String.UTF8.decode(blob.toArrayBuffer()).replaceAll("\n", " ").split(" ");
+	for (let i = 0; i < words.length; ++i) {
+		let word = words[i];
+		let equals = word.indexOf("=");
+		if (equals > 0) {
+			g_options.set(word.substring(0, equals), I32.parseInt(word.substring(equals + 1)));
+		}
+	}
+}
+
+function option(name: string, fallback: i32): i32 {
+	return g_options.has(name) ? g_options.get(name) : fallback;
+}
+
 function sceneIndex(): i32 {
 	if (isDefined(SCENE)) {
-		return SCENE;
+		return option("SCENE", SCENE);
 	}
-	return SCENE_LARGE_PYRAMID;
+	return option("SCENE", SCENE_LARGE_PYRAMID);
 }
 
 function stepCount(scene: i32): i32 {
 	if (isDefined(STEPS)) {
-		return STEPS;
+		return option("STEPS", STEPS);
 	}
-	return DEFAULT_STEPS[scene];
+	return option("STEPS", DEFAULT_STEPS[scene]);
+}
+
+function parallelTasks(): i32 {
+	if (isDefined(PARALLEL)) {
+		return option("PARALLEL", PARALLEL);
+	}
+	return option("PARALLEL", 0);
+}
+
+function partLimit(): i32 {
+	if (isDefined(PARTS)) {
+		return option("PARTS", PARTS);
+	}
+	return option("PARTS", 0);
+}
+
+function repeatCount(): i32 {
+	if (isDefined(REPEATS)) {
+		return option("REPEATS", REPEATS);
+	}
+	return option("REPEATS", 1);
+}
+
+function logsHashes(): bool {
+	if (isDefined(HASHLOG)) {
+		return true;
+	}
+	return option("HASHLOG", 0) != 0;
 }
 
 function profileToArray(p: b2Profile, out: Float64Array): void {
@@ -125,8 +182,18 @@ export class Main extends Layout {
 	stages: Float64Array = new Float64Array(STAGE_COUNT);
 	createMs: f64 = 0;
 	sceneData: Scene = new Scene();
+	parallel: i32 = 0;
+	hashLog: bool = false;
+	repeats: i32 = 1;
+	repeat: i32 = 0;
+	bestMean: f64 = Infinity;
+	bestLine: string = "";
 
 	override init(context: Context): bool {
+		loadOptions(context);
+		this.parallel = parallelTasks();
+		this.hashLog = logsHashes();
+		this.repeats = repeatCount();
 		this.scene = sceneIndex();
 		if (this.scene < 0 || this.scene >= Scene_GetCount()) {
 			console.log("BENCH unknown scene " + this.scene.toString());
@@ -134,13 +201,26 @@ export class Main extends Layout {
 		}
 		this.steps = stepCount(this.scene);
 		this.stepMs = new Float64Array(this.steps - WARMUP_STEPS);
+		this.start();
+		return true;
+	}
+
+	// Builds the scene for the next repeat
+	start(): void {
+		this.sceneData = new Scene();
+		this.stepIndex = 0;
+		this.stageSum.fill(0);
 
 		let t0 = clock();
 		Scene_Create(this.sceneData, Scene_GetName(this.scene), 1);
 		this.createMs = (clock() - t0) * 1000.0;
+		if (this.parallel != 0) {
+			b2World_EnableParallel(this.sceneData.worldId, this.parallel);
+			b2SetParallelLimit(partLimit());
+			console.log("BENCH parallel size=" + Parallel.size().toString());
+		}
 		console.log("BENCH start scene=" + Scene_GetName(this.scene) + " steps=" + this.steps.toString() +
 			" create=" + formatFixed(this.createMs, 2) + "ms");
-		return true;
 	}
 
 	override advance(seconds: f64): bool {
@@ -178,6 +258,12 @@ export class Main extends Layout {
 			}
 		}
 
+		if (this.hashLog && this.repeat == 0) {
+			Record_Write(this.sceneData, this.stepIndex);
+			console.log("HASH step=" + this.stepIndex.toString() + " hash=" + stateHash(this.sceneData).toString() +
+				" record=" + Record_Hash().toString());
+		}
+
 		this.stepIndex += 1;
 		if (this.stepIndex == this.steps) {
 			this.report();
@@ -208,6 +294,22 @@ export class Main extends Layout {
 			line += " min_" + STAGE_NAMES[k] + "=" + formatFixed(this.stageMin[k], 4);
 		}
 		line += " hash=" + stateHash(this.sceneData).toString();
-		console.log(line);
+		if (this.parallel != 0) {
+			line += b2ParallelReport();
+		}
+
+		let mean = total / <f64>timed;
+		if (mean < this.bestMean) {
+			this.bestMean = mean;
+			this.bestLine = line;
+		}
+
+		this.repeat += 1;
+		if (this.repeat < this.repeats) {
+			Scene_Destroy(this.sceneData);
+			this.start();
+		} else {
+			console.log(this.bestLine);
+		}
 	}
 }

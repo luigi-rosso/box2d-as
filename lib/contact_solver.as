@@ -891,7 +891,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 
 // C points empty lanes at b2_zeroContactSim. Nothing writes to it: normal velocities are stored only for lanes
 // with points.
-const b2_zeroContactSims = new StaticArray<b2ContactSim>(1);
+@parallel.shared const b2_zeroContactSims = new StaticArray<b2ContactSim>(1);
 
 // Lanes per kernel call: a v128 kernel covers the four, an f32 kernel one
 @inline function b2LaneCountL<T>(): i32 {

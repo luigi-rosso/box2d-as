@@ -129,7 +129,7 @@ import {
 	b2_kinematicBody,
 	b2_staticBody,
 } from "./types";
-import { b2BroadPhase, b2CreateBroadPhase, b2UpdateBroadPhasePairs } from "./broad_phase";
+import { b2BroadPhase, b2CreateBroadPhase, b2FinishTreeUpdate, b2UpdateBroadPhasePairs } from "./broad_phase";
 import { b2AddContactToGraph, b2ConstraintGraph, b2CreateGraph, b2RemoveContactFromGraph } from "./constraint_graph";
 import { b2ArrayData, b2ArrayView, b2Body, b2BodySim, b2GetBodySimAddress, b2GetBodyTransformQuick, b2IsStaticSimIndex, b2WakeBody } from "./body";
 import { b2SolverSet, b2WakeSolverSet, b2_awakeSet, b2_disabledSet, b2_firstSleepingSet, b2_staticSet } from "./solver_set";
@@ -163,6 +163,7 @@ import {
 import { b2OverlapSensors, b2Sensor, b2SensorHit, b2SensorTaskContext } from "./sensor";
 import {
 	b2ContactCollideSpan,
+	b2ContinuousContext,
 	b2MakeSoft,
 	b2Softness,
 	b2Solve,
@@ -206,6 +207,14 @@ export class b2TaskContext {
 
 	// Number of contacts recycled this step (collide pass).
 	recycledContactCount: i32 = 0;
+
+	// C's stack context of this worker's continuous sweeps
+	continuousContext: b2ContinuousContext = new b2ContinuousContext();
+
+	// The fast bodies a parallel part left for the main lane to sweep, and how many unstable bodies it found
+	deferredBodies: StaticArray<i32> = new StaticArray<i32>(0);
+	deferredBodyCount: i32 = 0;
+	unstableCount: i32 = 0;
 }
 
 // The world struct manages all physics entities, dynamic simulation,  and asynchronous queries.
@@ -324,6 +333,12 @@ export class b2World {
 	simdWidth: i32 = 0;
 	userTaskContext: u64 = 0;
 
+	// The tasks b2World_EnableParallel put on parallel calls, lib/parallel_step's bits
+	parallelTasks: i32 = 0;
+
+	// The solver's parallel call updates the stale trees, as C's tree task overlaps the narrow phase and the solver
+	deferTreeUpdate: bool = false;
+
 	userData: u64 = 0;
 
 	// Remember type step used for reporting forces and torques
@@ -422,6 +437,7 @@ function b2CreateWorkerContexts(world: b2World): void {
 		taskContext.enlargedSimBitSet = b2CreateBitSet(256);
 		taskContext.awakeIslandBitSet = b2CreateBitSet(256);
 		taskContext.splitIslandId = B2_NULL_INDEX;
+		taskContext.continuousContext.world = world;
 		world.taskContexts.push(taskContext);
 
 		let sensorTaskContext = new b2SensorTaskContext();
@@ -590,7 +606,16 @@ export function b2DestroyWorld(worldId: b2WorldId): void {
 	return b2GetBodySimAddress(world, bodyId);
 }
 
-unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
+// Runs the narrow phase over a step's contactCount contacts on parallel calls, or answers false to leave it here
+export type b2ParallelCollideFcn = (context: b2StepContext, contactCount: i32) => bool;
+
+let b2_parallelCollide: b2ParallelCollideFcn? = null;
+
+export function b2SetParallelCollide(fcn: b2ParallelCollideFcn?): void {
+	b2_parallelCollide = fcn;
+}
+
+export unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
 	let world = stepContext.world;
 	let taskContext = world.taskContexts[workerIndex];
 	let spans = stepContext.collideSpans;
@@ -722,7 +747,7 @@ unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, 
 		let centerOffsetB = b2RotateVector(transformB.q, load<b2Vec2>(bodySimB + offsetof<b2BodySim>("localCenter")));
 
 		// This updates solid contacts
-		let touching = b2UpdateContact(world, contactSim, shapeIdA, transformA, centerOffsetA, shapeIdB, transformB, centerOffsetB);
+		let touching = b2UpdateContact(world, contactSim, shapeIdA, transformA, centerOffsetA, shapeIdB, transformB, centerOffsetB, workerIndex);
 
 		// State changes that affect island connectivity. Also affects contact events.
 		if (touching == true && wasTouching == false) {
@@ -853,7 +878,10 @@ function b2Collide(context: b2StepContext): void {
 
 	// Task should take at least 40us on a 4GHz CPU (10K cycles)
 	let minRange = 64;
-	b2ParallelFor<b2StepContext>(world, b2CollideTask, contactCount, minRange, context);
+	let parallelCollide = b2_parallelCollide;
+	if (parallelCollide == null || parallelCollide(context, contactCount) == false) {
+		b2ParallelFor<b2StepContext>(world, b2CollideTask, contactCount, minRange, context);
+	}
 
 	// Drop the array references so a destroyed color array is not kept alive
 	for (let i = 0; i <= spanCount; ++i) {
@@ -1061,6 +1089,9 @@ export function b2World_Step(worldId: b2WorldId, timeStep: f32, subStepCount: i3
 		b2Solve(world, context);
 		world.profile.solve = b2GetMilliseconds(solveTicks);
 	}
+
+	// A step that solved nothing still owes a deferred tree update
+	b2FinishTreeUpdate(world);
 
 	// Update sensors
 	{

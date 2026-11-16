@@ -19,6 +19,8 @@ CACHE=${RIVE_AOT_CACHE_DIR:-$HERE/out/aotcache}
 mkdir -p "$HERE/out" "$CACHE"
 LOG="$HERE/out/session_$(date +%Y%m%d_%H%M%S).log"
 "$HERE/sync.sh"
+# An empty options blob, so a threads run's leftover does not override the defines
+: > "$HERE/options.txt"
 # The scalar artifact bakes from a copy of the project with wasmSimd: off, outside it so the CLI does not
 # compile the copy as part of the project; one per worktree. WASM_SIMD=off runs every scene on it.
 SCALAR_PROJECT=${TMPDIR:-/tmp}/box2d_bench_scalar_$(echo "$HERE" | md5 | cut -c1-8)

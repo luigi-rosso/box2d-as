@@ -993,6 +993,21 @@ export function b2DynamicTree_OverlapAABB<V>(tree: b2DynamicTree, aabb: b2AABB, 
 	return result;
 }
 
+/// As b2DynamicTree_OverlapAABB on the caller's own stack of B2_TREE_STACK_SIZE entries, as a worker's query needs
+export function b2DynamicTree_OverlapAABBWith<V>(
+	tree: b2DynamicTree,
+	aabb: b2AABB,
+	maskBits: u64,
+	callback: V,
+	stack: StaticArray<i32>,
+): b2TreeStats {
+	if (tree.proxyCount == 0) {
+		return b2TreeStats();
+	}
+
+	return b2OverlapAABBStack<V>(tree, aabb, maskBits, true, callback, stack);
+}
+
 // This ignores the category bits. Useful for debug draw.
 /// Query an AABB for overlapping proxies, ignoring the category bits.
 export function b2DynamicTree_OverlapAABBAll<V>(tree: b2DynamicTree, aabb: b2AABB, callback: V): b2TreeStats {
@@ -1419,10 +1434,11 @@ export struct b2CopyItem {
 	}
 }
 
-// The rebuild, refit and moved flag walks never call out, so they share static stacks.
-const b2_rebuildStack = new StaticArray<b2RebuildItem>(B2_TREE_STACK_SIZE);
-const b2_copyStack = new StaticArray<b2CopyItem>(B2_TREE_STACK_SIZE);
-const b2_walkStack = new StaticArray<i32>(B2_TREE_STACK_SIZE);
+// The rebuild, refit and moved flag walks never call out, so they share static stacks. In a parallel call only the
+// part that rebuilds walks a tree.
+@parallel.shared const b2_rebuildStack = new StaticArray<b2RebuildItem>(B2_TREE_STACK_SIZE);
+@parallel.shared const b2_copyStack = new StaticArray<b2CopyItem>(B2_TREE_STACK_SIZE);
+@parallel.shared const b2_walkStack = new StaticArray<i32>(B2_TREE_STACK_SIZE);
 
 // Bump allocate a pair of sibling nodes. Returns index to the first one.
 @inline function b2BumpPair(tree: b2DynamicTree, parent: i32): i32 {
@@ -1587,23 +1603,33 @@ function b2BuildTree(tree: b2DynamicTree, leafCount: i32): void {
 // Not safe to access tree during this operation.
 /// Rebuild the tree while retaining subtrees that haven't changed. Returns the number of boxes sorted.
 export function b2DynamicTree_Rebuild(tree: b2DynamicTree, fullBuild: bool): i32 {
-	let proxyCount = tree.proxyCount;
-	if (proxyCount == 0) {
-		return 0;
+	b2DynamicTree_ReserveRebuild(tree, fullBuild);
+	let leafCount = b2DynamicTree_BuildRebuild(tree, fullBuild);
+	b2DynamicTree_FinishRebuild(tree);
+	return leafCount;
+}
+
+// An unordered tree is rebuilt even when nothing moved, the sweep refit needs the order
+@inline function b2RebuildNeeded(tree: b2DynamicTree, fullBuild: bool): bool {
+	if (tree.proxyCount == 0) {
+		return false;
 	}
 
-	// An unordered tree is rebuilt even when nothing moved, the sweep refit needs the order
-	let nodes = tree.nodes;
-	let rootFlags = nodes[B2_ROOT_NODE].flagIndex;
-	let rootMoved = (rootFlags & B2_MOVED_NODE) == B2_MOVED_NODE;
-	if (fullBuild == false && rootMoved == false && tree.dfsOrdered) {
-		return 0;
+	return fullBuild || b2IsNodeMoved(tree.nodes[B2_ROOT_NODE]) || tree.dfsOrdered == false;
+}
+
+// b2DynamicTree_Rebuild in three steps, so a parallel part can run the middle one while the others collide: this
+// one makes the allocations, the build writes numbers only, and the finish swaps the node arrays.
+export function b2DynamicTree_ReserveRebuild(tree: b2DynamicTree, fullBuild: bool): void {
+	if (b2RebuildNeeded(tree, fullBuild) == false) {
+		return;
 	}
 
 	if (tree.swapNodes.length == 0) {
 		tree.swapNodes = new StaticArray<b2TreeNode>(tree.nodeCapacity);
 	}
 
+	let proxyCount = tree.proxyCount;
 	if (proxyCount > tree.rebuildCapacity) {
 		let newCapacity = proxyCount + proxyCount / 2;
 		tree.leafIndices = new StaticArray<i32>(newCapacity);
@@ -1611,6 +1637,19 @@ export function b2DynamicTree_Rebuild(tree: b2DynamicTree, fullBuild: bool): i32
 		tree.leafCenters = new StaticArray<b2Vec2>(newCapacity);
 		tree.rebuildCapacity = newCapacity;
 	}
+}
+
+// Builds into swapNodes what b2DynamicTree_ReserveRebuild made room for, unless a build already waits for its finish.
+// Returns the number of boxes sorted.
+export function b2DynamicTree_BuildRebuild(tree: b2DynamicTree, fullBuild: bool): i32 {
+	if (tree.rebuildPending || b2RebuildNeeded(tree, fullBuild) == false) {
+		return 0;
+	}
+
+	let proxyCount = tree.proxyCount;
+	let nodes = tree.nodes;
+	let rootFlags = nodes[B2_ROOT_NODE].flagIndex;
+	let rootMoved = (rootFlags & B2_MOVED_NODE) == B2_MOVED_NODE;
 	let leafIndices = tree.leafIndices;
 	let leaves = tree.leafNodes;
 	let leafCenters = tree.leafCenters;
@@ -1654,6 +1693,16 @@ export function b2DynamicTree_Rebuild(tree: b2DynamicTree, fullBuild: bool): i32
 	if (B2_ASSERT_ENABLED) B2_ASSERT(0 < leafCount && leafCount <= proxyCount);
 
 	b2BuildTree(tree, leafCount);
+	tree.rebuildPending = true;
+
+	return leafCount;
+}
+
+// Swaps in the nodes b2DynamicTree_BuildRebuild built, if it built any
+export function b2DynamicTree_FinishRebuild(tree: b2DynamicTree): void {
+	if (tree.rebuildPending == false) {
+		return;
+	}
 
 	// The spare is now the tree and the old array is the spare. The build is dense, so the
 	// stale tail of the old array sits above the end and is never read.
@@ -1662,11 +1711,10 @@ export function b2DynamicTree_Rebuild(tree: b2DynamicTree, fullBuild: bool): i32
 	tree.swapNodes = temp;
 	tree.pairFreeList = B2_NULL_INDEX;
 	tree.dfsOrdered = true;
+	tree.rebuildPending = false;
 
 	b2DynamicTree_Validate(tree);
 	b2DynamicTree_ValidateNoMoved(tree);
-
-	return leafCount;
 }
 
 // Set the moved flag on the ancestors of the proxy. Serial use case.

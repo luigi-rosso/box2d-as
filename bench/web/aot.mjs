@@ -6,7 +6,7 @@
 // RIVE and RIVE_WAMRC name rive-cli and wamrc, verify/toolchain.sh's by default.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { recordingHashes, SCENES } from './core.mjs';
@@ -24,6 +24,8 @@ const scenes = ( process.env.SCENES ?? 'large_pyramid:100 many_bodies:100 joint_
 	'spinner:300 tumbler:200 pyramid:300' ).split( /\s+/ ).filter( Boolean ).map( ( e ) => e.split( ':' ) );
 
 execFileSync( join( project, 'sync.sh' ) );
+// An empty options blob, so a threads run's leftover does not override the defines
+writeFileSync( join( project, 'options.txt' ), '' );
 
 mkdirSync( join( here, 'out' ), { recursive: true } );
 const stamp = new Date().toISOString().replace( /[-:]/g, '' ).slice( 0, 15 );

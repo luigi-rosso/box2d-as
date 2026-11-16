@@ -236,8 +236,9 @@ function b2MakeIdentityStates(): StaticArray<b2BodyState> {
 	return states;
 }
 
-// b2_identityBodyState in memory, where C points static lanes and joint ends
-export const b2_identityStates = b2MakeIdentityStates();
+// b2_identityBodyState in memory, where C points static lanes and joint ends. It has no dynamic flag, so nothing
+// writes it.
+@parallel.shared export const b2_identityStates = b2MakeIdentityStates();
 
 // C's state pointer: the awake state at index, or the identity state for B2_NULL_INDEX. Index comes from a
 // constraint the solver prepared, so it is below the awake count.

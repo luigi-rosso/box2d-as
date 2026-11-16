@@ -15,6 +15,7 @@ OUT=${OUT:-$(mktemp -d)}
 CACHE=${RIVE_AOT_CACHE_DIR:-$OUT/aotcache}
 mkdir -p "$OUT" "$CACHE"
 "$HERE/sync.sh"
+: > "$HERE/options.txt"
 # WASM_SIMD=off bakes the scalar artifact from a copy of the project with wasmSimd: off
 PROJECT=$HERE
 if [ "${WASM_SIMD:-on}" = off ]; then
