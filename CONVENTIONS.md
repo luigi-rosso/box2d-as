@@ -267,6 +267,22 @@ up front instead of rediscovering them.
   `bench/as/tools/v128cells.py`), plain `-O` does not. The scalar artifact must
   stay good on the interpreter.
 
+## Parallel code
+
+The step's tasks also run as the parts of parallel calls (`lib/parallel_step.as`, `notes/threading.md`), so whatever
+`b2CollideTask`, `b2FinalizeBodiesTask`, the pair tasks, the tree rebuild and the solver stages reach must stay safe
+for parts. The build refuses what parts may not do and warns about writes into what a global holds; the rest is on us:
+
+- Scratch that stands in for a C stack array is one set per worker, reached by the worker index, which is passed down
+  explicitly. No default argument: a forgotten one puts every part on worker 0's set, which the build cannot see.
+- A public function that needs scratch keeps C's signature and passes worker 0 to an `At` variant that takes the
+  index (`b2CollidePolygons` and `b2CollidePolygonsAt`).
+- What only the main lane may do (a user callback, an allocation, a log, a reference store) sits under
+  `if (!Parallel.inPart())`, and the task falls back to the main lane, or leaves that item to it, when it matters.
+- A write into an object the call was passed is not checked. Two parts must never write the same field: per worker
+  task contexts, or a real atomic (`atomic.add` on the field's address) where C has one.
+- `@parallel.shared` goes only on a global nothing writes, one indexed by worker, or one a single part uses.
+
 ## Gates
 
 Every change keeps all of these bit exact, with `RASC_FLAGS="-O"` and
@@ -276,3 +292,6 @@ Every change keeps all of these bit exact, with `RASC_FLAGS="-O"` and
 - `verify/traj.sh`: every body's transform and velocity and the world counters,
   every step, of each scene in `verify/scenes`, against a native recording
   (`NATIVE=1 verify/traj.sh` records them; recordings are gitignored).
+- `verify/threads.sh --large`: the same scenes under rive-cli with the step on
+  parallel calls at 1, 2, 4 and 8 parts and the default, every step's state and
+  record hash against the native recording. A race shows here and nowhere else.
