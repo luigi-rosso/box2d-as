@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // The threaded step in a browser: bakes bench/as with the step on parallel calls and HASHLOG, runs each bake on a
 // cross origin isolated page over librive's threads build at each part count, and holds every step to the native
-// recording through verify/threads.mjs, as verify/threads.sh does under rive-cli.
+// recording and to that part count through verify/threads.mjs, as verify/threads.sh does under rive-cli.
 //   PLAYWRIGHT=<dir holding node_modules/playwright-core> HARNESS=<rive>/packages/runtime/tests/web_scripting/out/wasm_threads_release \
 //     node bench/web/parallel.mjs [scene...]
 // PARTS="1 2 4 8 default": 1 runs every call as one part, n sets the page's part count, default leaves it to librive.
@@ -81,7 +81,8 @@ try
 				await tab.goto( `${origin}/bench/web/parallel.html` );
 				await tab.waitForFunction( () => window.ready === true );
 				const run = await tab.evaluate( ( [ n, o ] ) => window.runRiv( n, 300, o ), [ scene, options ] );
-				lines = run.error ? [ `failed ${run.error}`, ...run.lines ] : run.lines;
+				lines = run.error ? [ `failed ${run.error}`, ...run.lines ]
+					: run.crossOriginIsolated ? run.lines : [ 'failed: the page is not cross origin isolated', ...run.lines ];
 			}
 			catch ( err )
 			{
@@ -94,7 +95,7 @@ try
 			const log = join( logs, `${scene}_${p}.log` );
 			writeFileSync( log, lines.join( '\n' ) + '\n' );
 			const check = spawnSync( 'node', [ join( root, 'verify', 'threads.mjs' ),
-				join( root, 'verify', 'scenes', 'out', `${scene}_scalar_w1.bin` ), log, `${scene} P${p} ${browserName}` ],
+				join( root, 'verify', 'scenes', 'out', `${scene}_scalar_w1.bin` ), log, `${scene} P${p} ${browserName}`, p ],
 			{ encoding: 'utf8' } );
 			const size = lines.join( '\n' ).match( /BENCH parallel size=(\d+)/ )?.[1] ?? '-';
 			console.log( `${check.stdout.trim()} size ${size}` );

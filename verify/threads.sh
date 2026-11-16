@@ -8,13 +8,19 @@
 #   verify/threads.sh rain spinner    only those
 # PARTS="1 2 4 8 default" picks the part counts: 1 is --parallel-safe, n is --job-threads=n-1, default the CLI's pool.
 # TASKS picks lib/parallel_step's task bits, every task by default. TIER=interp runs without wamrc. WASM_SIMD=off
-# takes the scalar artifact. RIVE and RIVE_WAMRC name the CLI and its wamrc.
+# takes the scalar artifact. CALLBACKS=31 sets bench/as's callbacks, any of its mask's bits, and holds each run to the
+# serial port's run with them instead. A run gets TIMEOUT seconds, 900 by default. RIVE and RIVE_WAMRC name the CLI
+# and its wamrc.
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/toolchain.sh"
 project="$here/../bench/as"
 parts=${PARTS:-1 2 4 8 default}
 tasks=${TASKS:-15}
 tier=${TIER:-aot}
+callbacks=${CALLBACKS:-0}
+timeout=${TIMEOUT:-900}
+tag="T$tasks"
+[ "$callbacks" = 0 ] || tag="${tag}C$callbacks"
 
 scenes=()
 large=0
@@ -48,6 +54,20 @@ fi
 cache="$project/out/aotcache"
 mkdir -p "$cache"
 log=$(mktemp)
+serial=$(mktemp)
+
+# run_bench <scene> <steps> <tasks> [thread flag]: one run of the bake, which a hang ends at the timeout
+run_bench() {
+	cd "$run_dir"
+	# In the options blob, so every run shares one compiled bake
+	echo "SCENE=$(scene_define "$1") STEPS=$2 PARALLEL=$3 CALLBACKS=$callbacks HASHLOG=1" > options.txt
+	args=("$RIVE" . --bench=$(($2 + 10)) $4)
+	if [ "$tier" = aot ]; then
+		RIVE_WAMRC="$RIVE_WAMRC" RIVE_WASM_AOT_SYNC=o3 RIVE_AOT_CACHE_DIR="$cache" perl -e 'alarm shift; exec @ARGV' "$timeout" "${args[@]}" --aot
+	else
+		env -u RIVE_WAMRC perl -e 'alarm shift; exec @ARGV' "$timeout" "${args[@]}"
+	fi
+}
 
 results=()
 failed=0
@@ -59,37 +79,33 @@ for s in "${scenes[@]}"; do
 		continue
 	fi
 	steps=$(node "$here/threads.mjs" "$ref" --steps)
+	if [ "$callbacks" != 0 ]; then
+		(run_bench "$s" "$steps" 0 --parallel-safe) > "$serial" 2>&1
+		if [ "$(node "$here/threads.mjs" "$serial" --steps)" != "$steps" ]; then
+			echo "the serial run of $s with callbacks did not finish"
+			failed=$((failed + 1))
+			continue
+		fi
+		ref=$serial
+	fi
 	for p in $parts; do
 		case $p in
 			1) threads=--parallel-safe ;;
 			default) threads= ;;
 			*) threads=--job-threads=$((p - 1)) ;;
 		esac
-		label="$s P$p T$tasks"
-		(
-			cd "$run_dir"
-			# In the options blob, so every run shares one compiled bake
-			echo "SCENE=$(scene_define "$s") STEPS=$steps PARALLEL=$tasks HASHLOG=1" > options.txt
-			args=(. --bench=$((steps + 10)) $threads)
-			if [ "$tier" = aot ]; then
-				RIVE_WAMRC="$RIVE_WAMRC" RIVE_WASM_AOT_SYNC=o3 RIVE_AOT_CACHE_DIR="$cache" "$RIVE" "${args[@]}" --aot
-			else
-				env -u RIVE_WAMRC "$RIVE" "${args[@]}"
-			fi
-		) > "$log" 2>&1
-		r=$(node "$here/threads.mjs" "$ref" "$log" "$label")
+		(run_bench "$s" "$steps" "$tasks" $threads) > "$log" 2>&1
+		# Only the solver's calls say how many parts they got
+		ran=
+		[ $((tasks & 1)) -eq 0 ] || ran=$p
+		r=$(node "$here/threads.mjs" "$ref" "$log" "$s P$p $tag" $ran)
 		status=$?
-		size=$(sed -n 's/.*BENCH parallel size=\([0-9]*\).*/\1/p' "$log" | head -1)
-		if [ "$p" != default ] && [ "$size" != "$p" ]; then
-			r="RESULT $label 0 fail Parallel.size() is ${size:-missing}"
-			status=1
-		fi
 		echo "$r"
 		results+=("$r")
 		[ $status -eq 0 ] || failed=$((failed + 1))
 	done
 done
-rm -f "$log"
+rm -f "$log" "$serial"
 
 echo
 printf "%-26s %6s  %-5s %s\n" run steps pass "first divergence"

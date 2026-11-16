@@ -6,8 +6,9 @@
 // step; --define=DELAY=s spins s seconds before the first step. One Scene_Step per frame; the scene is built in
 // init and the result logged after the last step. --define=PARALLEL=tasks steps on parallel calls (lib/parallel_step's
 // task bits), on at most --define=PARTS=n parts; --define=HASHLOG logs every step's state hash and the hash of its
-// trajectory record for verify/threads.sh.
-// SCENE, STEPS, PARALLEL, PARTS, HASHLOG and REPEATS also come as NAME=n words in options.txt, which wins over a
+// trajectory record for verify/threads.sh. CALLBACKS=mask sets the world's callbacks, whose answers depend on how
+// many calls came before: 1 custom filter, 2 pre-solve, 4 friction, 8 restitution, 16 pre-continuous.
+// SCENE, STEPS, PARALLEL, PARTS, HASHLOG, CALLBACKS and REPEATS also come as NAME=n words in options.txt, which wins over a
 // define, so runs that differ only in those share one compiled bake. REPEATS=n builds and runs the scene n times and
 // reports the run with the lowest mean, as bench/native takes the min over its repeats.
 
@@ -21,14 +22,24 @@ import {
 	b2Body_GetPosition,
 	b2Body_GetRotation,
 	b2Body_IsValid,
+	b2Pos,
+	b2PreSolveManifold,
 	b2Profile,
+	b2ShapeId,
+	b2Vec2,
+	b2WorldId,
 	b2World_GetCounters,
 	b2World_GetProfile,
+	b2World_SetCustomFilterCallback,
+	b2World_SetFrictionCallback,
+	b2World_SetPreSolveCallback,
+	b2World_SetRestitutionCallback,
 } from "./lib/box2d";
+import { b2GetWorldFromId } from "./lib/physics_world";
 import { b2ParallelReport, b2SetParallelLimit, b2World_EnableParallel } from "./lib/parallel_step";
 // run.sh copies verify/scenes/scenes.as here, the mirror of the native bench's scenes.c
 import { Scene, Scene_Create, Scene_Destroy, Scene_GetCount, Scene_GetName, Scene_Step } from "./scenes/scenes";
-import { Record_Hash, Record_Write } from "./scenes/record";
+import { Record_Error, Record_Hash, Record_Write } from "./scenes/record";
 
 const STAGE_COUNT: i32 = 23;
 const WARMUP_STEPS: i32 = 1;
@@ -134,6 +145,61 @@ function repeatCount(): i32 {
 	return option("REPEATS", 1);
 }
 
+function callbackMask(): i32 {
+	if (isDefined(CALLBACKS)) {
+		return option("CALLBACKS", CALLBACKS);
+	}
+	return option("CALLBACKS", 0);
+}
+
+// Each callback answers by how many calls came before it, so a step that makes them in another order than the
+// serial step diverges from it
+let g_callbackCalls = 0;
+
+function everyCallBut(period: i32): bool {
+	g_callbackCalls += 1;
+	return g_callbackCalls % period != 0;
+}
+
+function benchCustomFilter(_shapeIdA: b2ShapeId, _shapeIdB: b2ShapeId): bool {
+	return everyCallBut(7);
+}
+
+function benchPreSolve(_shapeIdA: b2ShapeId, _shapeIdB: b2ShapeId, manifold: b2PreSolveManifold): void {
+	if (everyCallBut(5) == false) {
+		manifold.manifold.pointCount = 0;
+	}
+}
+
+function benchPreContinuous(_shapeIdA: b2ShapeId, _shapeIdB: b2ShapeId, _point: b2Pos, _normal: b2Vec2): bool {
+	return everyCallBut(3);
+}
+
+function benchFriction(frictionA: f32, _materialA: u64, frictionB: f32, _materialB: u64): f32 {
+	return everyCallBut(2) ? frictionA : frictionB;
+}
+
+function benchRestitution(restitutionA: f32, _materialA: u64, restitutionB: f32, _materialB: u64): f32 {
+	return everyCallBut(2) ? restitutionA : restitutionB;
+}
+
+function setCallbacks(worldId: b2WorldId, mask: i32): void {
+	g_callbackCalls = 0;
+	b2World_SetCustomFilterCallback(worldId, (mask & 1) != 0 ? benchCustomFilter : null);
+	b2World_SetPreSolveCallback(worldId, (mask & 2) != 0 ? benchPreSolve : null, (mask & 16) != 0 ? benchPreContinuous : null);
+	b2World_SetFrictionCallback(worldId, (mask & 4) != 0 ? benchFriction : null);
+	b2World_SetRestitutionCallback(worldId, (mask & 8) != 0 ? benchRestitution : null);
+}
+
+// The filter and the pre-solve callback see only shapes that ask for them, and scenes make shapes as they run
+function optInShapes(worldId: b2WorldId): void {
+	let shapes = b2GetWorldFromId(worldId).shapes;
+	for (let i = 0; i < shapes.length; ++i) {
+		shapes[i].enableCustomFiltering = true;
+		shapes[i].enablePreSolveEvents = true;
+	}
+}
+
 function logsHashes(): bool {
 	if (isDefined(HASHLOG)) {
 		return true;
@@ -188,10 +254,12 @@ export class Main extends Layout {
 	repeat: i32 = 0;
 	bestMean: f64 = Infinity;
 	bestLine: string = "";
+	callbacks: i32 = 0;
 
 	override init(context: Context): bool {
 		loadOptions(context);
 		this.parallel = parallelTasks();
+		this.callbacks = callbackMask();
 		this.hashLog = logsHashes();
 		this.repeats = repeatCount();
 		this.scene = sceneIndex();
@@ -219,6 +287,9 @@ export class Main extends Layout {
 			b2SetParallelLimit(partLimit());
 			console.log("BENCH parallel size=" + Parallel.size().toString());
 		}
+		if (this.callbacks != 0) {
+			setCallbacks(this.sceneData.worldId, this.callbacks);
+		}
 		console.log("BENCH start scene=" + Scene_GetName(this.scene) + " steps=" + this.steps.toString() +
 			" create=" + formatFixed(this.createMs, 2) + "ms");
 	}
@@ -234,6 +305,10 @@ export class Main extends Layout {
 				let start = clock();
 				while (clock() - start < <f64>DELAY) {}
 			}
+		}
+
+		if (this.callbacks != 0) {
+			optInShapes(this.sceneData.worldId);
 		}
 
 		let t0 = clock();
@@ -261,7 +336,10 @@ export class Main extends Layout {
 		if (this.hashLog && this.repeat == 0) {
 			Record_Write(this.sceneData, this.stepIndex);
 			console.log("HASH step=" + this.stepIndex.toString() + " hash=" + stateHash(this.sceneData).toString() +
-				" record=" + Record_Hash().toString());
+				" record=" + Record_Hash().toString() + " calls=" + g_callbackCalls.toString());
+			if (Record_Error() != 0) {
+				console.log("BENCH failed to record step " + this.stepIndex.toString());
+			}
 		}
 
 		this.stepIndex += 1;

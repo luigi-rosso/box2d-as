@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Erin Catto
 // SPDX-License-Identifier: MIT
-// Compares what a rive-cli run of bench/as logged for every step (--define=HASHLOG) with the native recording: the
-// state hash, and the hash of the whole trajectory record but its build and worker dependent counters, so events,
-// counters, sleep flags and probes are held to native too. node cannot run parallel calls, so the run happens in
-// rive-cli and this reads its log.
-//   node verify/threads.mjs <recording.bin> <run.log> <label>
+// Holds what a rive-cli run of bench/as logged for every step (HASHLOG) to a reference: the state hash, the hash of
+// the whole trajectory record but its build and worker dependent counters, so events, counters, sleep flags and
+// probes are held too, and how many callbacks the step had made. The reference is a native recording, or the log of
+// the serial port's run for a run with callbacks, which no recording has. node cannot run parallel calls, so the run
+// happens in rive-cli and this reads its log.
+//   node verify/threads.mjs <recording.bin | serial.log> <run.log> <label> [parts]
 //   node verify/threads.mjs <recording.bin> --steps
+// parts, a count or default, also fails a run whose solver did not run on that many parts.
 // Prints one RESULT line: RESULT <label> <steps compared> <pass|fail> <first divergence or ->
 
 import { readFileSync } from 'node:fs';
@@ -44,54 +46,90 @@ function recordHashes( bytes )
 	return hashes;
 }
 
-const [file, logFile, label] = process.argv.slice( 2 );
-const bytes = readFileSync( file );
-const native = recordingHashes( bytes );
+// What a run logged: its lines, and each step's hashes and callback count
+function readLog( file )
+{
+	const lines = readFileSync( file, 'utf8' ).split( '\n' );
+	const steps = new Map();
+	for ( const line of lines )
+	{
+		const m = line.match( /HASH step=(\d+) hash=(\d+) record=(\d+) calls=(\d+)/ );
+		if ( m )
+		{
+			steps.set( Number( m[1] ), { hash: Number( m[2] ), record: Number( m[3] ), calls: Number( m[4] ) } );
+		}
+	}
+	return { lines, steps };
+}
+
+const [file, logFile, label, parts] = process.argv.slice( 2 );
+let reference;
+if ( file.endsWith( '.bin' ) )
+{
+	const bytes = readFileSync( file );
+	const records = recordHashes( bytes );
+	reference = recordingHashes( bytes ).map( ( hash, step ) => ( { hash, record: records[step], calls: 0 } ) );
+}
+else
+{
+	const { steps } = readLog( file );
+	reference = Array.from( { length: steps.size }, ( _, step ) => steps.get( step ) );
+}
 if ( logFile === '--steps' )
 {
-	console.log( native.length );
+	console.log( reference.length );
 	process.exit( 0 );
 }
-const nativeRecords = recordHashes( bytes );
 
-const lines = readFileSync( logFile, 'utf8' ).split( '\n' );
-const run = new Map();
-for ( const line of lines )
+const { lines, steps } = readLog( logFile );
+const problems = lines.filter( ( l ) => /trapped|failed|gave up| error /.test( l ) );
+
+// A run that passes on hashes alone may have stepped serially or on fewer parts than it was given
+if ( parts !== undefined )
 {
-	const m = line.match( /HASH step=(\d+) hash=(\d+) record=(\d+)/ );
-	if ( m )
+	const result = lines.find( ( l ) => l.includes( 'BENCH RESULT' ) ) ?? '';
+	const field = ( name ) => Number( result.match( new RegExp( ` ${name}=(\\d+)` ) )?.[1] ?? -1 );
+	const size = Number( lines.join( '\n' ).match( /BENCH parallel size=(\d+)/ )?.[1] ?? -1 );
+	const expected = parts === 'default' ? size : Number( parts );
+	if ( size !== expected )
 	{
-		run.set( Number( m[1] ), { hash: Number( m[2] ), record: Number( m[3] ) } );
+		problems.push( `Parallel.size() is ${size}` );
+	}
+	else if ( field( 'parSolves' ) <= 0 )
+	{
+		problems.push( 'no solver call ran on parts' );
+	}
+	else if ( field( 'parts' ) !== expected )
+	{
+		problems.push( `the solver ran on ${field( 'parts' )} parts` );
 	}
 }
-const problems = lines.filter( ( l ) => /trapped|failed|gave up| error /.test( l ) );
 
 let compared = 0;
 let divergence = '-';
-for ( let step = 0; step < native.length; ++step )
+for ( let step = 0; step < reference.length && divergence === '-'; ++step )
 {
-	const logged = run.get( step );
-	if ( logged === undefined )
+	const logged = steps.get( step );
+	const wanted = reference[step];
+	if ( logged === undefined || wanted === undefined )
 	{
 		divergence = `step ${step} missing`;
 		break;
 	}
-	if ( logged.hash !== native[step] )
+	for ( const [key, name] of [ [ 'hash', 'state hash' ], [ 'record', 'record hash' ], [ 'calls', 'callback calls' ] ] )
 	{
-		divergence = `step ${step} state hash ${logged.hash} native ${native[step]}`;
-		break;
+		if ( logged[key] !== wanted[key] )
+		{
+			divergence = `step ${step} ${name} ${logged[key]} reference ${wanted[key]}`;
+			break;
+		}
 	}
-	if ( logged.record !== nativeRecords[step] )
-	{
-		divergence = `step ${step} record hash ${logged.record} native ${nativeRecords[step]}`;
-		break;
-	}
-	compared += 1;
+	compared += divergence === '-' ? 1 : 0;
 }
 if ( problems.length > 0 && divergence === '-' )
 {
 	divergence = problems[0].replace( /^.*?\] /, '' ).slice( 0, 120 );
 }
-const pass = compared === native.length && problems.length === 0;
+const pass = compared > 0 && compared === reference.length && problems.length === 0;
 console.log( `RESULT ${label} ${compared} ${pass ? 'pass' : 'fail'} ${divergence}` );
 process.exit( pass ? 0 : 1 );
