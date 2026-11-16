@@ -1,14 +1,31 @@
-name: box2d_as
+name: box2d_demo
 main: main
+scripting: wasm
+# Physics steps outrun the 200 ms script budget of the fueled debug bake the live window plays.
+dangerouslyFast: true
 artboard:
   width: 1280
   height: 800
-  background: "#101014"
+  background: "#151412"
+# The demo imports verify/scenes/scenes.as, so verify stays in but for its drivers and outputs.
 exclude:
-  - verify
+  - bench
+  - examples
+  - notes
+  - verify/as
+  - verify/cref
+  - verify/out
+  - verify/vectors
+  - verify/scenes/out
+  - verify/scenes/bin
+  - verify/scenes/traj.as
+  - verify/scenes/record.as
+  - demo/fonts/OFL-Inter.txt
+  - CONVENTIONS.md
+  - LICENSE
+  - README.md
 output:
   dir: build
-scripting: wasm
-scriptVm: /Users/luigi/Projects/rive-wamr_vm/packages/luau_wasm/out/host/vm_host.wasm
-rascStd: /Users/luigi/Projects/rive-fields_as/packages/assemblyscript/std
-dangerouslyFast: true
+logs:
+  file: build/rive.log
+  problems: build/problems.log

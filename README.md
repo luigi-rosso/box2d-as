@@ -64,6 +64,36 @@ collector: keep the world id and every callback you register reachable from modu
 from `advance`, so a collection between frames keeps them. `verify/scenes/scenes.as` has 18 larger examples, one per
 scene below, each the statement for statement twin of `scenes.c` over the C API.
 
+- **`examples/`** has one short file per area of the API: [hello world](examples/hello_world.as),
+  [shapes](examples/shapes.as) (circle, capsule, box, rounded box and hull in a chain tray),
+  [joints](examples/joints.as) (a revolute chain, a prismatic platform on a motor), [queries](examples/queries.as)
+  (ray casts, a circle cast, overlaps), [events](examples/events.as) (sensor, contact and hit events) and
+  [threading](examples/threading.as). `examples/check.sh` runs each one under `rive --test` and checks what it shows
+  (`examples/tests.as`), such as the box coming to rest, or parallel calls ending bit for bit where the serial step
+  does. `examples/check.sh --aot` runs them compiled ahead of time.
+- **The demo** at the repo root is a rive-cli project (`main.as`, `demo/`) that steps the 18 scenes of
+  `verify/scenes/scenes.as` at 60 Hz and draws their bodies, shapes and joints with the Rive renderer. A panel picks
+  the scene, pauses, steps once, restarts, and switches the step between serial and parallel calls with the part
+  count; the other shows the step and draw times, the world's counters and the step's profile. A runtime without
+  threads offers serial only. It needs AOT for interactive rates on the larger scenes:
+
+  ```sh
+  source verify/toolchain.sh
+  RIVE_WAMRC="$RIVE_WAMRC" "$RIVE" . --aot
+  ```
+
+  | input | what |
+  |---|---|
+  | drag, scroll | pan, zoom at the pointer |
+  | `F` | frame the scene again, and follow its car or mover |
+  | `Up`, `Down`, `1` to `9` | previous, next, or numbered scene |
+  | `P` or `Space`, `O`, `R` | pause, step once, restart |
+  | `T`, `[`, `]` | serial or parallel calls, fewer or more parts |
+  | `J`, `G`, `H` | joints, grid, panels |
+
+  `--define=START_SCENE=n` opens scene n, counting from 1, and `--define=PARALLEL` starts on parallel calls.
+  Add `--screenshot=<png> --advance=<frames>` to render a scene headless.
+
 ## Threading
 
 ```as
@@ -262,6 +292,8 @@ Reproduce: `ROUNDS=3 bench/as/threads.sh`, on a quiet machine.
 | path | what |
 |---|---|
 | `lib/` | the port; `box2d.as` is the public API, `parallel_step.as` the parallel calls backend |
+| `main.as`, `demo/`, `rive.yaml` | the demo: the shell, and its camera, drawing and panels |
+| `examples/` | one short file per area of the API, and `check.sh` to run them |
 | `verify/` | parity gates: `cref/` C drivers, `as/` AnimaScript drivers, `scenes/` the 18 scenes in C and AnimaScript |
 | `bench/native`, `bench/as`, `bench/web` | native timings, rive-cli AOT and interpreter timings (`threads.sh` on parallel calls), V8 against C on wasm |
 | `notes/` | porting notes per module, the perf pass |
