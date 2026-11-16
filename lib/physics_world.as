@@ -383,7 +383,7 @@ for (let i = 0; i < B2_MAX_WORLDS; ++i) {
 	b2_worlds[i] = new b2World();
 }
 
-function b2GetUnlockedWorldFromId(id: b2WorldId): b2World? {
+export function b2GetUnlockedWorldFromId(id: b2WorldId): b2World? {
 	B2_ASSERT(1 <= id.index1 && id.index1 <= B2_MAX_WORLDS);
 	let world = b2_worlds[id.index1 - 1];
 	B2_ASSERT(id.index1 == world.worldId + 1);

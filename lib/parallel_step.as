@@ -25,7 +25,7 @@ import {
 	b2SelfPairsWorldTask,
 	b2SetParallelPairs,
 } from "./broad_phase";
-import { b2CollideTask, b2GetWorldFromId, b2SetParallelCollide, b2World, b2World_SetWorkerCount } from "./physics_world";
+import { b2CollideTask, b2GetUnlockedWorldFromId, b2SetParallelCollide, b2World, b2World_SetWorkerCount } from "./physics_world";
 import { b2WorldId } from "./id";
 
 export const b2_parallelSolve: i32 = 1;
@@ -36,7 +36,11 @@ export const b2_parallelAll: i32 = 15;
 
 // Per step totals, for a bench's result line
 export class b2ParallelStats {
+	// The most parts a solver call got, which can be fewer than Parallel.size()
+	parts: i32 = 0;
 	solves: i32 = 0;
+	// How many times a long stage wait had every part sync
+	stageSyncs: i32 = 0;
 	collides: i32 = 0;
 	finalizes: i32 = 0;
 	deferredBodies: i64 = 0;
@@ -44,7 +48,8 @@ export class b2ParallelStats {
 	pairOverflows: i32 = 0;
 }
 
-export const b2_parallelStats = new b2ParallelStats();
+// Among the parts only part 0 of a solver call writes it
+@parallel.shared export const b2_parallelStats = new b2ParallelStats();
 
 // The most parts a call runs on
 let b2_partLimit = B2_MAX_WORKERS;
@@ -61,10 +66,13 @@ let b2_partLimit = B2_MAX_WORKERS;
 // C's solver task with a part as each worker: part 0 orchestrates the stages and the others claim their blocks. The
 // last part first builds a deferred tree update, as C's tree task overlaps the solver, and joins at the stage it finds.
 @parallel.inplace export unsafe function b2ParallelSolverTask(part: Part, context: b2StepContext): void {
+	if (part.index == 0 && part.count > b2_parallelStats.parts) {
+		b2_parallelStats.parts = part.count;
+	}
 	if (part.index == part.count - 1) {
 		b2BuildTreeUpdate(context.world);
 	}
-	b2SolverWorker(context, part.index);
+	b2SolverWorker(context, part.index, part);
 }
 
 function b2ParallelSolve(context: b2StepContext): bool {
@@ -75,6 +83,7 @@ function b2ParallelSolve(context: b2StepContext): bool {
 
 	Parallel.runUpTo(b2MaxParts(world), b2ParallelSolverTask, context);
 	b2_parallelStats.solves += 1;
+	b2_parallelStats.stageSyncs += context.syncRequests.value;
 	return true;
 }
 
@@ -185,7 +194,11 @@ function b2ParallelPairs(world: b2World, crossContext: b2CrossContext, crossCoun
 // or b2_parallelAll; 0 turns it off. The world gets a task context per part, which leaves its results unchanged as
 // C's are at any worker count. Call it from init or later: Parallel.size() is 1 in a file's top level code.
 export function b2World_EnableParallel(worldId: b2WorldId, tasks: i32): void {
-	let world = b2GetWorldFromId(worldId);
+	let world = b2GetUnlockedWorldFromId(worldId);
+	if (world == null) {
+		return;
+	}
+
 	world.parallelTasks = tasks;
 	world.deferTreeUpdate = (tasks & b2_parallelSolve) != 0;
 	if (tasks == 0) {
@@ -210,7 +223,8 @@ export function b2SetParallelLimit(parts: i32): void {
 
 // Fields for a bench's result line
 export function b2ParallelReport(): string {
-	return " parts=" + Parallel.size().toString() + " parSolves=" + b2_parallelStats.solves.toString() + " parCollides=" +
+	return " parts=" + b2_parallelStats.parts.toString() + " parSolves=" + b2_parallelStats.solves.toString() +
+		" parStageSyncs=" + b2_parallelStats.stageSyncs.toString() + " parCollides=" +
 		b2_parallelStats.collides.toString() + " parFinalizes=" + b2_parallelStats.finalizes.toString() + " parDeferredBodies=" + b2_parallelStats.deferredBodies.toString() + " parPairs=" + b2_parallelStats.pairs.toString() +
 		" parPairOverflows=" + b2_parallelStats.pairOverflows.toString();
 }

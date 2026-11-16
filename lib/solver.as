@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // AnimaScript port of src/solver.c
 
-import { Parallel } from "rive/parallel";
+import { Parallel, Part } from "rive/parallel";
 
 import { B2_ASSERT, B2_ASSERT_ENABLED, B2_NULL_INDEX, UINT16_MAX, UINT32_MAX, UINT8_MAX, b2AtomicInt, b2AtomicU32, b2GetMilliseconds, b2GetMillisecondsAndReset, b2GetTicks, b2Log } from "./core";
 import { B2_GRAPH_COLOR_COUNT, B2_MAX_ROTATION, B2_MAX_TASKS, B2_MAX_WORKERS, B2_LINEAR_SLOP, B2_SPECULATIVE_DISTANCE, B2_TIME_TO_SLEEP } from "./constants";
@@ -271,6 +271,9 @@ export class b2StepContext {
 	// How many workers sleep on the sync bits, which only the parts of a parallel call do
 	sleepingWorkers: b2AtomicInt = b2AtomicInt();
 
+	// How many syncs part 0 has asked every part of a parallel call to make
+	syncRequests: b2AtomicInt = b2AtomicInt();
+
 	// Whether parallel parts finalizing bodies sweep the fast ones too, or leave them to the main lane
 	parallelContinuous: bool = false;
 
@@ -374,6 +377,7 @@ const SC_MAINCLAIMED = offsetof<b2StepContext>("mainClaimed");
 const SC_BULLETBODYCOUNT = offsetof<b2StepContext>("bulletBodyCount");
 const SC_ANYRESTITUTION = offsetof<b2StepContext>("anyRestitution");
 const SC_SLEEPINGWORKERS = offsetof<b2StepContext>("sleepingWorkers");
+const SC_SYNCREQUESTS = offsetof<b2StepContext>("syncRequests");
 
 @inline unsafe function b2StepAtomic(context: b2StepContext, offset: usize): usize {
 	return changetype<usize>(context) + offset;
@@ -393,6 +397,28 @@ function b2Pause(): void {}
 // times in one wait sleeps on the sync bits instead, until b2PublishSyncBits wakes it or this long has passed, in ns.
 const B2_WORKER_SPIN_YIELDS: i32 = 2048;
 const B2_WORKER_SLEEP_NANOS: i64 = 1000000;
+
+// A part learns that another part of its call trapped only at a sync, which then fails the call. So a worker that has
+// slept this many times in one wait leaves the step, which part 0 can finish without it.
+const B2_WORKER_IDLE_SLEEPS: i32 = 500;
+
+// A worker that trapped inside a block never adds its count, so part 0 has every part sync each time it has polled
+// a stage this many times.
+const B2_STAGE_SYNC_POLLS: i32 = 1 << 24;
+
+@inline unsafe function b2RequestSync(context: b2StepContext, part: Part): void {
+	atomic.add<i32>(b2StepAtomic(context, SC_SYNCREQUESTS), 1);
+	part.sync();
+}
+
+// Makes the sync part 0 asked for since this worker had made syncsMade of them, and answers how many it has made now
+@inline unsafe function b2AnswerSync(context: b2StepContext, part: Part, syncsMade: i32): i32 {
+	let requests = atomic.load<i32>(b2StepAtomic(context, SC_SYNCREQUESTS));
+	if (requests != syncsMade) {
+		part.sync();
+	}
+	return requests;
+}
 
 @inline unsafe function b2YieldWorker(context: b2StepContext, syncBits: u32, yieldCount: i32): void {
 	if (Parallel.inPart() && yieldCount > B2_WORKER_SPIN_YIELDS) {
@@ -1139,18 +1165,43 @@ export function b2PrepareParallelFinalize(world: b2World, stepContext: b2StepCon
 	stepContext.parallelContinuous = world.sensors.length == 0 && world.customFilterFcn == null && world.preContinuousFcn == null;
 }
 
+// Ascending, in place
+function b2SortIndices(indices: StaticArray<i32>, count: i32): void {
+	for (let gap = count >> 1; gap > 0; gap >>= 1) {
+		for (let i = gap; i < count; ++i) {
+			let value = indices[i];
+			let j = i;
+			for (; j >= gap && indices[j - gap] > value; j -= gap) {
+				indices[j] = indices[j - gap];
+			}
+			indices[j] = value;
+		}
+	}
+}
+
 // What b2FinalizeBodiesTask does for the fast bodies and the unstable bodies the parts left to the main lane. The
-// sweeps read only their own body and static shapes, so their order does not matter.
+// sweeps go in sim order, bullets later too, so the callbacks they make come in the serial step's order.
 export unsafe function b2FinishParallelFinalize(world: b2World, stepContext: b2StepContext): void {
-	let unstableCount = 0;
-	for (let i = 0; i < world.workerCount; ++i) {
+	// Worker 0's list has room for every awake body
+	let first = world.taskContexts[0];
+	let deferred = first.deferredBodies;
+	let deferredCount = first.deferredBodyCount;
+	let unstableCount = first.unstableCount;
+	for (let i = 1; i < world.workerCount; ++i) {
 		let taskContext = world.taskContexts[i];
-		let deferred = taskContext.deferredBodies;
 		for (let k = 0; k < taskContext.deferredBodyCount; ++k) {
-			b2SolveContinuous(world, deferred[k], taskContext, stepContext.dt);
+			deferred[deferredCount] = taskContext.deferredBodies[k];
+			deferredCount += 1;
 		}
 		unstableCount += taskContext.unstableCount;
 	}
+
+	b2SortIndices(deferred, deferredCount);
+	for (let k = 0; k < deferredCount; ++k) {
+		b2SolveContinuous(world, deferred[k], first, stepContext.dt);
+	}
+
+	b2SortIndices(stepContext.bulletBodies, b2AtomicLoadInt(b2StepAtomic(stepContext, SC_BULLETBODYCOUNT)));
 
 	// C logs each as it finds it; these are the same bodies in sim order
 	if (unstableCount > 0) {
@@ -1400,7 +1451,7 @@ unsafe function b2ExecuteStage(stage: b2SolverStage, context: b2StepContext, pre
 }
 
 // Execute a stage on worker 0 (main thread).
-unsafe function b2ExecuteMainStage(stage: b2SolverStage, context: b2StepContext, syncBits: u32): void {
+unsafe function b2ExecuteMainStage(stage: b2SolverStage, context: b2StepContext, syncBits: u32, part: Part?): void {
 	let blockCount = stage.blockCount;
 	if (blockCount == 0) {
 		return;
@@ -1421,8 +1472,12 @@ unsafe function b2ExecuteMainStage(stage: b2SolverStage, context: b2StepContext,
 
 		// Spin waiting for thieves to finish
 		let completionCount = b2CompletionCount(stage);
+		let polls = 0;
 		while (b2AtomicLoadInt(completionCount) != blockCount) {
 			b2Pause();
+			if (Parallel.inPart() && (++polls & (B2_STAGE_SYNC_POLLS - 1)) == 0) {
+				b2RequestSync(context, part!);
+			}
 		}
 
 		b2AtomicStoreInt(completionCount, 0);
@@ -1440,11 +1495,11 @@ unsafe function b2ExecuteMainStage(stage: b2SolverStage, context: b2StepContext,
 
 // Parallel solver task
 unsafe function b2SolverTask(workerContext: b2WorkerContext): void {
-	b2SolverWorker(workerContext.context!, workerContext.workerIndex);
+	b2SolverWorker(workerContext.context!, workerContext.workerIndex, null);
 }
 
-// b2SolverTask for worker workerIndex of the step, which a part of a parallel call runs as its own
-export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32): void {
+// b2SolverTask for worker workerIndex of the step, which a part of a parallel call runs as its own, passing itself
+export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32, part: Part?): void {
 	let activeColorCount = context.activeColorCount;
 	let stages = context.stages;
 	let world = context.world;
@@ -1493,7 +1548,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 		let jointSyncIndex = 1;
 		let syncBits = b2SyncBits(jointSyncIndex, stageIndex);
 		B2_ASSERT(stages[stageIndex].type == b2_stagePrepareJoints);
-		b2ExecuteMainStage(stages[stageIndex], context, syncBits);
+		b2ExecuteMainStage(stages[stageIndex], context, syncBits, part);
 		stageIndex += 1;
 		jointSyncIndex += 1;
 
@@ -1501,7 +1556,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 		let contactSyncIndex = 1;
 		syncBits = b2SyncBits(contactSyncIndex, stageIndex);
 		B2_ASSERT(stages[stageIndex].type == b2_stagePrepareContacts);
-		b2ExecuteMainStage(stages[stageIndex], context, syncBits);
+		b2ExecuteMainStage(stages[stageIndex], context, syncBits, part);
 		stageIndex += 1;
 		contactSyncIndex += 1;
 
@@ -1521,7 +1576,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 			// Integrate velocities
 			syncBits = b2SyncBits(bodySyncIndex, iterationStageIndex);
 			B2_ASSERT(stages[iterationStageIndex].type == b2_stageIntegrateVelocities);
-			b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits);
+			b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits, part);
 			iterationStageIndex += 1;
 			bodySyncIndex += 1;
 
@@ -1534,7 +1589,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 			for (let colorIndex = 0; colorIndex < activeColorCount; ++colorIndex) {
 				syncBits = b2SyncBits(graphSyncIndex, iterationStageIndex);
 				B2_ASSERT(stages[iterationStageIndex].type == b2_stageWarmStart);
-				b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits);
+				b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits, part);
 				iterationStageIndex += 1;
 			}
 			graphSyncIndex += 1;
@@ -1551,7 +1606,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 				for (let colorIndex = 0; colorIndex < activeColorCount; ++colorIndex) {
 					syncBits = b2SyncBits(graphSyncIndex, iterationStageIndex);
 					B2_ASSERT(stages[iterationStageIndex].type == b2_stageSolve);
-					b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits);
+					b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits, part);
 					iterationStageIndex += 1;
 				}
 				graphSyncIndex += 1;
@@ -1562,7 +1617,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 			// Integrate positions
 			B2_ASSERT(stages[iterationStageIndex].type == b2_stageIntegratePositions);
 			syncBits = b2SyncBits(bodySyncIndex, iterationStageIndex);
-			b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits);
+			b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits, part);
 			iterationStageIndex += 1;
 			bodySyncIndex += 1;
 
@@ -1576,7 +1631,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 				for (let colorIndex = 0; colorIndex < activeColorCount; ++colorIndex) {
 					syncBits = b2SyncBits(graphSyncIndex, iterationStageIndex);
 					B2_ASSERT(stages[iterationStageIndex].type == b2_stageRelax);
-					b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits);
+					b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits, part);
 					iterationStageIndex += 1;
 				}
 				graphSyncIndex += 1;
@@ -1598,7 +1653,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 				for (let colorIndex = 0; colorIndex < activeColorCount; ++colorIndex) {
 					syncBits = b2SyncBits(graphSyncIndex, iterationStageIndex);
 					B2_ASSERT(stages[iterationStageIndex].type == b2_stageRestitution);
-					b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits);
+					b2ExecuteMainStage(stages[iterationStageIndex], context, syncBits, part);
 					iterationStageIndex += 1;
 				}
 				graphSyncIndex += 1;
@@ -1614,7 +1669,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 
 		syncBits = b2SyncBits(contactSyncIndex, stageIndex);
 		B2_ASSERT(stages[stageIndex].type == b2_stageStoreImpulses);
-		b2ExecuteMainStage(stages[stageIndex], context, syncBits);
+		b2ExecuteMainStage(stages[stageIndex], context, syncBits, part);
 
 		world.profile.storeImpulses += b2MillisecondsAndReset(ticks);
 
@@ -1628,6 +1683,7 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 	// Worker spins and waits for work. Tasks run inline after worker 0 finished every stage, so this sees the
 	// sentinel at once.
 	let lastSyncBits: u32 = 0;
+	let syncsMade = 0;
 	while (true) {
 		// Spin until main thread bumps changes the sync bits. This can waste significant time overall, but it is necessary for
 		// parallel simulation with graph coloring.
@@ -1639,6 +1695,12 @@ export unsafe function b2SolverWorker(context: b2StepContext, workerIndex: i32):
 			if (spinCount > 5) {
 				yieldCount += 1;
 				b2YieldWorker(context, lastSyncBits, yieldCount);
+				if (Parallel.inPart()) {
+					if (yieldCount > B2_WORKER_SPIN_YIELDS + B2_WORKER_IDLE_SLEEPS) {
+						return;
+					}
+					syncsMade = b2AnswerSync(context, part!, syncsMade);
+				}
 				spinCount = 0;
 			} else {
 				b2Pause();
@@ -2066,6 +2128,7 @@ export unsafe function b2Solve(world: b2World, stepContext: b2StepContext): void
 		b2AtomicStoreU32(b2StepAtomic(stepContext, SC_SYNCBITS), 0);
 		b2AtomicStoreInt(b2StepAtomic(stepContext, SC_MAINCLAIMED), 0);
 		b2AtomicStoreInt(b2StepAtomic(stepContext, SC_SLEEPINGWORKERS), 0);
+		b2AtomicStoreInt(b2StepAtomic(stepContext, SC_SYNCREQUESTS), 0);
 
 		world.profile.solverSetup = b2MillisecondsAndReset(setupTicks);
 
