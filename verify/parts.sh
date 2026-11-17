@@ -16,9 +16,12 @@ here="$(cd "$(dirname "$0")" && pwd)"
 project="$here/../bench/as"
 # The caller's would take the runs off the solver's task, off the native recording, or to another directory's log
 unset TASKS CALLBACKS WASM_SIMD
-case " $PARTS " in
-	*" 1 "*) echo "PARTS cannot hold 1: with part 0 running no block, a step on one part never ends" >&2; exit 2 ;;
-esac
+for p in $PARTS; do
+	if [ "$p" = 1 ]; then
+		echo "PARTS cannot hold 1: with part 0 running no block, a step on one part never ends" >&2
+		exit 2
+	fi
+done
 scenes=("$@")
 [ ${#scenes[@]} -gt 0 ] || scenes=(pyramid large_pyramid)
 "$project/sync.sh"
