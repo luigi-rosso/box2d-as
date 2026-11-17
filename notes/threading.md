@@ -40,7 +40,7 @@ Bit exact at every part count, on rive master at 5d0e608da3 (rasc, rive-cli and 
 | rain, smash, spinner, joint_grid and churn at 8 parts, three runs each | 15 | 15 |
 | `CALLBACKS=63 verify/threads.sh`: 11 scenes at the same part counts, with stateful callbacks and bullets, against the serial port's run | 55 | 55 |
 | `CALLBACKS="33 34 36 40 48" PARTS="4 8" verify/threads.sh shape_rain bullets`: each callback alone | 20 | 20 |
-| `verify/parts.sh`: pyramid and large_pyramid at 2, 4 and 8 parts with part 0 running no block, and again with a sync every 8 polls; a trap in a worker and one in part 0 | 14 | 14 |
+| `verify/parts.sh`: pyramid and large_pyramid at 2, 4 and 8 parts with part 0 running no block, and again with a sync every 8 polls; on pyramid at 4 parts, a trap in a worker and one in part 0 | 14 | 14 |
 
 In browsers (`bench/web/parallel.mjs`: the same bakes on a cross origin isolated page over librive's web scripting
 harness, built with threads from the same master; headless Chrome 157, WebKit 27.2 and Firefox 157): pyramid, joints,
@@ -51,9 +51,11 @@ Each run logs, for every step, the hash of the bodies' state and the hash of the
 build and worker dependent counters (`verify/scenes/record.as`), so contact, sensor, joint and body events, counters,
 sleep flags and the scenes' probes are held to the native recording too, not only poses. The checker also fails a
 run whose `Parallel.size()` is not what it was given, none of whose solver calls got that many parts, or that never
-ran a task on parts that it was asked to. The gates ran on the final lib twice, the first time with the machine at
-a load of 200 to 600 from other work, which shakes out races better than a quiet one. The serial gates (`run.sh`, `traj.sh`, `heap.mjs`) pass unchanged on
-both artifacts.
+ran a task on parts that it was asked to (the narrow phase only if the run ends with contacts). The table is one
+run of the gates in their final form. The same lib had passed earlier forms of them with the machine at a load of
+several hundred from other work, which shakes out races better than a quiet one, but for joint_grid: it has no
+contacts, and the checker then asked every run for a narrow phase on parts. The serial gates pass on both
+artifacts: `run.sh` 16 of 16, `traj.sh` 18 of 18, and `heap.mjs` flat on its 11 scenes.
 
 Whole step, ms per step (`bench/as/threads.sh`, session `bench/as/out/threads_20261115_200056.log`, AOT -O3 with
 hardware bounds as master's CLI ships, SIMD artifact, Apple M5 Max (6 performance and 12 efficiency cores), 2 rounds interleaved with native
@@ -219,10 +221,10 @@ neither.
   syncs, and a worker that finds the count changed in its wait loop syncs too (`b2RequestSync`, `b2AnswerSync`). If
   a part trapped the sync fails the call with its error; otherwise every part goes on once all have arrived, which
   costs one of the old barriers, a part that has not started yet included. A run that needed none reports
-  `parStageSyncs=0`, as the gate's runs did with the machine at a load of 200 to 600, but for a stress run of
-  joint_grid at 8 parts that made one. The other way round, a worker that
-  has slept 500 times in one wait returns, so the call ends once the workers have, and part 0 can finish any step
-  without them: one that part 0 leaves alone for half a second finishes on part 0.
+  `parStageSyncs=0`, as the gate's runs did, the earlier ones under heavy load too, but for one stress run of
+  joint_grid at 8 parts that made one. The other way round, a worker that has slept more than 500 times in one wait
+  returns, so the call ends once the workers have, and part 0 can finish any step without them: one that part 0
+  leaves alone for half a second finishes on part 0.
   - How long a trap takes to end the call depends on the tier, since 2^24 polls do, and on the machine's load. With
     a trap injected at 4 and 8 parts at loads of 20 to 150: on AOT a worker's trap ends the call in 7 to 37 ms and
     part 0's in 0.6 to 0.8 s; on the interpreter a worker's in 0.1 to 0.6 s, and part 0's in 1 to 2 ms, since the
@@ -231,10 +233,10 @@ neither.
     within a second, which it otherwise does at the join.
   - `verify/parts.sh` holds it on edited copies: part 0 running no block (the other parts must be able to run them
     all), a sync every 8 polls, and a trap in a worker and in part 0, which must end the call.
-  - It costs nothing that shows. Interleaved with the lib before it on large_pyramid (1, 2, 4 and 8 parts) and rain
-    (1, 4 and 8), at a load of 9 to 15, min over 4 to 8 rounds of the best of 3 to 5 repeats: within 3% either way,
-    but for large_pyramid at 4 parts, 7% faster. At 1 part large_pyramid reads 1.8 ms for whichever build runs first
-    of a pair and 2.0 for the other, so the pairs, not the builds, differ there. No run made a stage sync. The
+  - It costs nothing that shows. Interleaved with the lib before it (8ce7469), min over 4 to 8 rounds at a load of
+    9 to 15: large_pyramid at 2, 4 and 8 parts and rain at 4 and 8 are within 3% either way, but for large_pyramid
+    at 4 parts, 7% faster. At 1 part the rounds wander more than the builds differ, so by median over 10 rounds at
+    a load of 5 to 21: 1.345 and 1.348 ms on large_pyramid, 2.365 and 2.365 on rain. No run made a stage sync. The
     tables above were measured before it.
 - **Marked `@parallel.shared`**: the identity body state and the zero contact sim (stand-ins nothing writes), the
   worker polygons and pair contexts (indexed by worker), the tree rebuild stacks (one part rebuilds), the stats
@@ -260,5 +262,6 @@ Size: `lib/parallel_step.as` is about 200 lines, and making the rest of lib para
   once. A std accessor for it would let both wait loops poll it and drop the sync requests and the worker's idle
   limit.
 - **The gates do not hold speed.** A build that stopped using the parts after the first step, whose workers parked
-  where they should work, or whose workers did not answer a sync until their idle limit, would pass them as long as
-  its results were right; `bench/as/threads.sh` shows it in the scaling.
+  where they should work, whose workers did not answer a sync until their idle limit, or whose trap took minutes to
+  end the call, would pass them as long as its results were right; `bench/as/threads.sh` shows the first three in
+  the scaling.
