@@ -113,8 +113,8 @@ b2World_EnableParallel(worldId, b2_parallelAll); // from init or later, not from
   friction or restitution callback is set, pair finding when a custom filter is set, and the continuous sweeps (the
   rest of finalize stays parallel) when the world has sensors, a custom filter or a pre-continuous callback. Bullets,
   sensor overlaps and the island split always do. So callbacks run only on the main lane, in the serial step's order.
-- A part that traps ends the step with its error: on AOT a worker's in about 30 ms and part 0's in about half a
-  second (`notes/threading.md` has the other tiers). A failed step leaves the world locked, as it does without
+- A part that traps ends the step with an error: on AOT a worker's in some tens of milliseconds and part 0's in 0.6
+  to 0.8 s (`notes/threading.md` has the other tiers). A failed step leaves the world locked, as it does without
   parallel calls.
 - It needs rive master at 4a861ff147 or later, where parallel calls landed; an older runtime traps on the first call.
   A build that does not import `lib/parallel_step` is the serial port it was.
@@ -169,9 +169,10 @@ exactness, with no tolerance.
 | `verify/traj.sh` | every body's state, the world counters and per scene probes (joints, manifolds, events, queries), every step, against a native recording | 18 scenes |
 | `verify/heap.mjs` | wasm pages after step 20 and step 200 under the frame collector: a settled scene must not grow | 11 scenes |
 | `bench/web/verify.sh` | the state hash of every step on V8, for the port and for C Box2D on wasm | 18 scenes, 6 builds |
-| `verify/threads.sh --large` | under rive-cli with the step on parallel calls at 1, 2, 4 and 8 parts and the default: every step's state hash and the hash of its whole trajectory record (events, counters, sleep flags, probes) against the native recording, and that the solver's calls got that many parts and every task ran on parts | 18 scenes, 90 runs |
+| `verify/threads.sh --large` | under rive-cli with the step on parallel calls at 1, 2, 4 and 8 parts and the default: every step's state hash and the hash of its whole trajectory record (events, counters, sleep flags, probes) against the native recording, and that the run stepped every task on parts, with a solver call that got that many | 18 scenes, 90 runs |
 | `CALLBACKS=63 verify/threads.sh` | the same runs with a custom filter, pre-solve, pre-continuous, friction and restitution callback whose answers depend on how many calls came before, and about half the dynamic bodies bullets, against the serial port's run: the parallel step makes the same calls in the same order | 11 scenes, 55 runs |
-| `verify/parts.sh` | on copies with one edit each: part 0 runs no block, so the other parts must run them all; a sync every 8 polls of a stage wait; a trap in a worker and in part 0, which must end the call | 2 scenes, 14 runs |
+| `CALLBACKS="33 34 36 40 48" PARTS="4 8" verify/threads.sh shape_rain bullets` | each of those callbacks alone, where each is called: all at once would hide a task that forgot one of the callbacks that keep it off the parts | 2 scenes, 20 runs |
+| `verify/parts.sh` | on copies with one edit each: part 0 runs no block, so the other parts must be able to run them all; a sync every 8 polls of a stage wait; a trap in a worker and in part 0, which must end the call | 2 scenes, 14 runs |
 | `bench/web/parallel.mjs` | the same check on a page in Chrome, WebKit and Firefox, over librive's threads build | 8 scenes, 40 runs a browser |
 
 The 18 scenes are pyramid, shape rain, chain car, joints, dynamic mover, churn (create, destroy and every body
@@ -324,6 +325,7 @@ RASC_FLAGS="-O --enable-simd" WASM=verify/scenes/out/as/traj_simd.wasm verify/tr
 node verify/heap.mjs many_bodies --wasm=verify/scenes/out/as/traj_simd.wasm
 verify/threads.sh --large
 CALLBACKS=63 verify/threads.sh
+CALLBACKS="33 34 36 40 48" PARTS="4 8" verify/threads.sh shape_rain bullets
 verify/parts.sh
 ```
 
