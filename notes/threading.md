@@ -52,10 +52,11 @@ build and worker dependent counters (`verify/scenes/record.as`), so contact, sen
 sleep flags and the scenes' probes are held to the native recording too, not only poses. The checker also fails a
 run whose `Parallel.size()` is not what it was given, none of whose solver calls got that many parts, or that never
 ran a task on parts that it was asked to (the narrow phase only if the run ends with contacts). The table is one
-run of the gates in their final form. An earlier form of the threaded gates had passed on the same lib with the
-machine's load at several hundred, which shakes out races better than a quiet one, but for joint_grid: it has no
-contacts, and that checker asked every run for a narrow phase on parts. The serial gates pass on both artifacts:
-`run.sh` 16 of 16, `traj.sh` 18 of 18, and `heap.mjs` flat on its 11 scenes.
+run of the gates in their final form. An earlier form of the threaded gates, which had no run of each callback
+alone, had passed on the same lib with the machine's load at several hundred, which shakes out races better than a
+quiet one, but for joint_grid: it has no contacts, and that checker asked every run for a narrow phase on parts.
+The serial gates pass on both artifacts: `run.sh` 16 of 16, `traj.sh` 18 of 18, and `heap.mjs` flat on its 11
+scenes.
 
 Whole step, ms per step (`bench/as/threads.sh`, session `bench/as/out/threads_20261115_200056.log`, AOT -O3 with
 hardware bounds as master's CLI ships, SIMD artifact, Apple M5 Max (6 performance and 12 efficiency cores), 2 rounds interleaved with native
@@ -222,9 +223,9 @@ neither.
   a part trapped the sync fails the call with its error; otherwise every part goes on once all have arrived, which
   costs one of the old barriers, a part that has not started yet included. A run that needed none reports
   `parStageSyncs=0`, as the 200 runs of `verify/threads.sh` in the table did but one, large_pyramid at the default
-  part count, which made one. The other way round, a worker that has slept more than 500 times in one wait returns, so the call
-  ends once the workers have, and part 0 can finish any step without them: one that part 0 leaves alone for half a
-  second finishes on part 0.
+  part count, which made one. The other way round, a worker that has slept more than 500 times in one wait returns,
+  so the call ends once the workers have, and part 0 can finish any step without them: one that part 0 leaves alone
+  for half a second finishes on part 0.
   - How long a trap takes to end the call depends on the tier, since 2^24 polls do, and on the machine's load. With
     a trap injected at 4 and 8 parts at loads of 20 to 150: on AOT a worker's trap ends the call in 7 to 37 ms and
     part 0's in 0.6 to 0.8 s; on the interpreter a worker's in 0.1 to 0.6 s, and part 0's in 1 to 2 ms, since the
