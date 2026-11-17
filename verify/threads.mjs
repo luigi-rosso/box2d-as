@@ -7,7 +7,7 @@
 // happens in rive-cli and this reads its log.
 //   node verify/threads.mjs <recording.bin | serial.log> <run.log> <label> [parts tasks]
 //   node verify/threads.mjs <recording.bin> --steps
-// parts, a count or default, and tasks, lib/parallel_step's bits, also fail a run whose Parallel.size() is not that,
+// parts, a count or default, with tasks, lib/parallel_step's bits, also fail a run whose Parallel.size() is not that,
 // that stepped other tasks, that never ran one of them on parts (the narrow phase only if the run ends with
 // contacts), or none of whose solver calls got that many parts. It cannot say that every call did, or how much of
 // the work the parts other than 0 took: a build that is only slower passes.
@@ -82,6 +82,11 @@ function readLog( file )
 }
 
 const [file, logFile, label, parts, asked] = process.argv.slice( 2 );
+if ( parts !== undefined && asked === undefined && logFile !== '--steps' )
+{
+	console.error( 'threads.mjs: parts needs tasks' );
+	process.exit( 2 );
+}
 const problems = [];
 let reference;
 if ( file.endsWith( '.bin' ) )
@@ -135,7 +140,7 @@ if ( parts !== undefined )
 	{
 		problems.push( 'no result line' );
 	}
-	else if ( asked !== undefined && tasks !== Number( asked ) )
+	else if ( tasks !== Number( asked ) )
 	{
 		problems.push( `the run stepped tasks ${tasks}` );
 	}
