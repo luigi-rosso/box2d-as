@@ -8,17 +8,18 @@
 #   verify/threads.sh rain spinner    only those
 # PARTS="1 2 4 8 default" picks the part counts: 1 is --parallel-safe, n is --job-threads=n-1, default the CLI's pool.
 # TASKS picks lib/parallel_step's task bits, every task by default. TIER=interp runs without wamrc. WASM_SIMD=off
-# takes the scalar artifact. CALLBACKS=31 sets bench/as's callbacks, any of its mask's bits, and holds each run to the
-# serial port's run with them instead. A run gets TIMEOUT seconds, 900 by default. RIVE and RIVE_WAMRC name the CLI
-# and its wamrc.
+# takes the scalar artifact. CALLBACKS=63 sets bench/as's callbacks, any of its mask's bits, and holds each run to the
+# serial port's run with them instead. A run gets TIMEOUT seconds, bake included, 1800 by default. RIVE and RIVE_WAMRC
+# name the CLI and its wamrc. PROJECT names a copy of bench/as to run as it is, which is how verify/parts.sh runs
+# its edited ones.
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/toolchain.sh"
-project="$here/../bench/as"
+project=${PROJECT:-$here/../bench/as}
 parts=${PARTS:-1 2 4 8 default}
 tasks=${TASKS:-15}
 tier=${TIER:-aot}
 callbacks=${CALLBACKS:-0}
-timeout=${TIMEOUT:-900}
+timeout=${TIMEOUT:-1800}
 tag="T$tasks"
 [ "$callbacks" = 0 ] || tag="${tag}C$callbacks"
 
@@ -42,7 +43,7 @@ scene_define() {
 	esac
 }
 
-"$project/sync.sh"
+[ -n "$PROJECT" ] || "$project/sync.sh"
 run_dir="$project"
 if [ "${WASM_SIMD:-on}" = off ]; then
 	# The scalar artifact bakes from a copy with wasmSimd: off, outside the project so the CLI does not compile it
@@ -56,8 +57,8 @@ mkdir -p "$cache"
 log=$(mktemp)
 serial=$(mktemp)
 
-# run_bench <scene> <steps> <tasks> [thread flag]: one run of the bake, which a hang ends at the timeout
-run_bench() {
+# run_bench <scene> <steps> <tasks> [thread flag]: one run of the bake, which the alarm ends and names if it hangs
+run_bench() (
 	cd "$run_dir"
 	# In the options blob, so every run shares one compiled bake
 	echo "SCENE=$(scene_define "$1") STEPS=$2 PARALLEL=$3 CALLBACKS=$callbacks HASHLOG=1" > options.txt
@@ -67,7 +68,8 @@ run_bench() {
 	else
 		env -u RIVE_WAMRC perl -e 'alarm shift; exec @ARGV' "$timeout" "${args[@]}"
 	fi
-}
+	[ $? -ne 142 ] || echo "the run timed out after $timeout s"
+)
 
 results=()
 failed=0
@@ -80,12 +82,7 @@ for s in "${scenes[@]}"; do
 	fi
 	steps=$(node "$here/threads.mjs" "$ref" --steps)
 	if [ "$callbacks" != 0 ]; then
-		(run_bench "$s" "$steps" 0 --parallel-safe) > "$serial" 2>&1
-		if [ "$(node "$here/threads.mjs" "$serial" --steps)" != "$steps" ]; then
-			echo "the serial run of $s with callbacks did not finish"
-			failed=$((failed + 1))
-			continue
-		fi
+		run_bench "$s" "$steps" 0 --parallel-safe > "$serial" 2>&1
 		ref=$serial
 	fi
 	for p in $parts; do
@@ -94,11 +91,8 @@ for s in "${scenes[@]}"; do
 			default) threads= ;;
 			*) threads=--job-threads=$((p - 1)) ;;
 		esac
-		(run_bench "$s" "$steps" "$tasks" $threads) > "$log" 2>&1
-		# Only the solver's calls say how many parts they got
-		ran=
-		[ $((tasks & 1)) -eq 0 ] || ran=$p
-		r=$(node "$here/threads.mjs" "$ref" "$log" "$s P$p $tag" $ran)
+		run_bench "$s" "$steps" "$tasks" $threads > "$log" 2>&1
+		r=$(node "$here/threads.mjs" "$ref" "$log" "$s P$p $tag" "$p")
 		status=$?
 		echo "$r"
 		results+=("$r")

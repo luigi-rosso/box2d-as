@@ -6,8 +6,8 @@
 //   PLAYWRIGHT=<dir holding node_modules/playwright-core> HARNESS=<rive>/packages/runtime/tests/web_scripting/out/wasm_threads_release \
 //     node bench/web/parallel.mjs [scene...]
 // PARTS="1 2 4 8 default": 1 runs every call as one part, n sets the page's part count, default leaves it to librive.
-// BROWSER=chromium (Chrome), firefox or webkit. RIVE names rive-cli, verify/toolchain.sh's by default; it must be a
-// dev build, which --unsigned-riv needs.
+// BROWSER=chromium (Chrome), firefox or webkit. A run gets TIMEOUT seconds, 900 by default. RIVE names rive-cli,
+// verify/toolchain.sh's by default; it must be a dev build, which --unsigned-riv needs.
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -26,6 +26,7 @@ const rive = process.env.RIVE ??
 const parts = ( process.env.PARTS ?? '1 2 4 8 default' ).split( /\s+/ ).filter( Boolean );
 const named = process.argv.slice( 2 );
 const scenes = named.length > 0 ? named : [ 'pyramid', 'joints', 'churn', 'bullets', 'sensors', 'events', 'large_pyramid', 'rain' ];
+const timeout = Number( process.env.TIMEOUT ?? 900 ) * 1000;
 const out = join( here, 'out', 'parallel' );
 mkdirSync( out, { recursive: true } );
 
@@ -80,7 +81,11 @@ try
 			{
 				await tab.goto( `${origin}/bench/web/parallel.html` );
 				await tab.waitForFunction( () => window.ready === true );
-				const run = await tab.evaluate( ( [ n, o ] ) => window.runRiv( n, 300, o ), [ scene, options ] );
+				// A frame that never returns never reaches the page's own deadline, and evaluate has none
+				const evaluated = tab.evaluate( ( [ n, s, o ] ) => window.runRiv( n, s, o ), [ scene, timeout / 2000, options ] );
+				evaluated.catch( () => {} );
+				const run = await Promise.race( [ evaluated,
+					new Promise( ( settle ) => setTimeout( settle, timeout, { error: `timed out after ${timeout / 1000} s`, lines: [] } ) ) ] );
 				lines = run.error ? [ `failed ${run.error}`, ...run.lines ]
 					: run.crossOriginIsolated ? run.lines : [ 'failed: the page is not cross origin isolated', ...run.lines ];
 			}
@@ -90,7 +95,8 @@ try
 			}
 			finally
 			{
-				await tab.close();
+				// A page stuck in a frame may not close either; the browser's close ends it
+				await Promise.race( [ tab.close().catch( () => {} ), new Promise( ( settle ) => setTimeout( settle, 5000 ) ) ] );
 			}
 			const log = join( logs, `${scene}_${p}.log` );
 			writeFileSync( log, lines.join( '\n' ) + '\n' );

@@ -7,7 +7,8 @@
 // init and the result logged after the last step. --define=PARALLEL=tasks steps on parallel calls (lib/parallel_step's
 // task bits), on at most --define=PARTS=n parts; --define=HASHLOG logs every step's state hash and the hash of its
 // trajectory record for verify/threads.sh. CALLBACKS=mask sets the world's callbacks, whose answers depend on how
-// many calls came before: 1 custom filter, 2 pre-solve, 4 friction, 8 restitution, 16 pre-continuous.
+// many calls came before: 1 custom filter, 2 pre-solve, 4 friction, 8 restitution, 16 pre-continuous. 32 makes a
+// bullet of every second body that is dynamic.
 // SCENE, STEPS, PARALLEL, PARTS, HASHLOG, CALLBACKS and REPEATS also come as NAME=n words in options.txt, which wins over a
 // define, so runs that differ only in those share one compiled bake. REPEATS=n builds and runs the scene n times and
 // reports the run with the lowest mean, as bench/native takes the min over its repeats.
@@ -21,7 +22,9 @@ import {
 	b2Body_GetLinearVelocity,
 	b2Body_GetPosition,
 	b2Body_GetRotation,
+	b2Body_GetType,
 	b2Body_IsValid,
+	b2Body_SetBullet,
 	b2Pos,
 	b2PreSolveManifold,
 	b2Profile,
@@ -34,6 +37,7 @@ import {
 	b2World_SetFrictionCallback,
 	b2World_SetPreSolveCallback,
 	b2World_SetRestitutionCallback,
+	b2_dynamicBody,
 } from "./lib/box2d";
 import { b2GetWorldFromId } from "./lib/physics_world";
 import { b2ParallelReport, b2SetParallelLimit, b2World_EnableParallel } from "./lib/parallel_step";
@@ -191,13 +195,29 @@ function setCallbacks(worldId: b2WorldId, mask: i32): void {
 	b2World_SetRestitutionCallback(worldId, (mask & 8) != 0 ? benchRestitution : null);
 }
 
-// The filter and the pre-solve callback see only shapes that ask for them, and scenes make shapes as they run
-function optInShapes(worldId: b2WorldId): void {
-	let shapes = b2GetWorldFromId(worldId).shapes;
+// The filter and the pre-solve callback see only shapes that ask for them, and scenes make shapes as they run. Bit
+// 32 makes bullets of dynamic bodies only: a sweep skips a bullet it meets, a static one too, and so its callbacks.
+function optIn(scene: Scene, mask: i32): void {
+	let shapes = b2GetWorldFromId(scene.worldId).shapes;
 	for (let i = 0; i < shapes.length; ++i) {
 		shapes[i].enableCustomFiltering = true;
 		shapes[i].enablePreSolveEvents = true;
 	}
+	if ((mask & 32) != 0) {
+		for (let i = 1; i < scene.bodyCount; i += 2) {
+			let id = scene.bodies[i];
+			if (b2Body_IsValid(id) && b2Body_GetType(id) == b2_dynamicBody) {
+				b2Body_SetBullet(id, true);
+			}
+		}
+	}
+}
+
+// The callbacks the world has, the scene's own included, in CALLBACKS' bits: what keeps a task off the parts
+function worldCallbacks(worldId: b2WorldId): i32 {
+	let world = b2GetWorldFromId(worldId);
+	return (world.customFilterFcn != null ? 1 : 0) | (world.preSolveFcn != null ? 2 : 0) | (world.frictionCallback != null ? 4 : 0) |
+		(world.restitutionCallback != null ? 8 : 0) | (world.preContinuousFcn != null ? 16 : 0);
 }
 
 function logsHashes(): bool {
@@ -308,7 +328,7 @@ export class Main extends Layout {
 		}
 
 		if (this.callbacks != 0) {
-			optInShapes(this.sceneData.worldId);
+			optIn(this.sceneData, this.callbacks);
 		}
 
 		let t0 = clock();
@@ -373,7 +393,8 @@ export class Main extends Layout {
 		}
 		line += " hash=" + stateHash(this.sceneData).toString();
 		if (this.parallel != 0) {
-			line += b2ParallelReport();
+			line += " parTasks=" + this.parallel.toString() + " callbacks=" + worldCallbacks(this.sceneData.worldId).toString() +
+				b2ParallelReport();
 		}
 
 		let mean = total / <f64>timed;

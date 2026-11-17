@@ -7,7 +7,9 @@
 // happens in rive-cli and this reads its log.
 //   node verify/threads.mjs <recording.bin | serial.log> <run.log> <label> [parts]
 //   node verify/threads.mjs <recording.bin> --steps
-// parts, a count or default, also fails a run whose solver did not run on that many parts.
+// parts, a count or default, also fails a run whose Parallel.size() is not that, whose solver calls did not get that
+// many parts, or that never ran a task it was asked to run on parts. Whether the parts other than 0 did any of the
+// work it cannot say; verify/parts.sh holds that.
 // Prints one RESULT line: RESULT <label> <steps compared> <pass|fail> <first divergence or ->
 
 import { readFileSync } from 'node:fs';
@@ -46,23 +48,36 @@ function recordHashes( bytes )
 	return hashes;
 }
 
-// What a run logged: its lines, and each step's hashes and callback count
+// What stops a run short of its result or makes the result worthless
+const PROBLEM = /trapped|failed|gave up| error |RuntimeError|Uncaught|timed out/;
+
+// What a run logged: its problems, each step's hashes and callback count, and the fields of its result line
 function readLog( file )
 {
 	const lines = readFileSync( file, 'utf8' ).split( '\n' );
+	const problems = lines.filter( ( l ) => PROBLEM.test( l ) ).map( ( l ) => l.replace( /^.*?\] /, '' ).slice( 0, 120 ) );
 	const steps = new Map();
 	for ( const line of lines )
 	{
 		const m = line.match( /HASH step=(\d+) hash=(\d+) record=(\d+) calls=(\d+)/ );
-		if ( m )
+		if ( m === null )
 		{
-			steps.set( Number( m[1] ), { hash: Number( m[2] ), record: Number( m[3] ), calls: Number( m[4] ) } );
+			continue;
 		}
+		if ( steps.has( Number( m[1] ) ) )
+		{
+			problems.push( `step ${m[1]} logged twice` );
+		}
+		steps.set( Number( m[1] ), { hash: Number( m[2] ), record: Number( m[3] ), calls: Number( m[4] ) } );
 	}
-	return { lines, steps };
+	const result = lines.find( ( l ) => l.includes( 'BENCH RESULT' ) ) ?? '';
+	const field = ( name ) => Number( result.match( new RegExp( ` ${name}=(\\d+)` ) )?.[1] ?? -1 );
+	const size = Number( lines.join( '\n' ).match( /BENCH parallel size=(\d+)/ )?.[1] ?? -1 );
+	return { problems, steps, field, size };
 }
 
 const [file, logFile, label, parts] = process.argv.slice( 2 );
+const problems = [];
 let reference;
 if ( file.endsWith( '.bin' ) )
 {
@@ -72,8 +87,18 @@ if ( file.endsWith( '.bin' ) )
 }
 else
 {
-	const { steps } = readLog( file );
-	reference = Array.from( { length: steps.size }, ( _, step ) => steps.get( step ) );
+	// The serial port's run with callbacks. One that stopped short or never called one would hold nothing.
+	const serial = readLog( file );
+	reference = Array.from( { length: serial.steps.size }, ( _, step ) => serial.steps.get( step ) );
+	problems.push( ...serial.problems.map( ( p ) => `serial run: ${p}` ) );
+	if ( serial.field( 'steps' ) !== reference.length )
+	{
+		problems.push( 'serial run: did not finish' );
+	}
+	else if ( !( reference.at( -1 )?.calls > 0 ) )
+	{
+		problems.push( 'serial run: no callback was called' );
+	}
 }
 if ( logFile === '--steps' )
 {
@@ -81,25 +106,35 @@ if ( logFile === '--steps' )
 	process.exit( 0 );
 }
 
-const { lines, steps } = readLog( logFile );
-const problems = lines.filter( ( l ) => /trapped|failed|gave up| error /.test( l ) );
+const run = readLog( logFile );
+problems.push( ...run.problems );
 
 // A run that passes on hashes alone may have stepped serially or on fewer parts than it was given
 if ( parts !== undefined )
 {
-	const result = lines.find( ( l ) => l.includes( 'BENCH RESULT' ) ) ?? '';
-	const field = ( name ) => Number( result.match( new RegExp( ` ${name}=(\\d+)` ) )?.[1] ?? -1 );
-	const size = Number( lines.join( '\n' ).match( /BENCH parallel size=(\d+)/ )?.[1] ?? -1 );
+	const { field, size } = run;
 	const expected = parts === 'default' ? size : Number( parts );
-	if ( size !== expected )
+	const tasks = field( 'parTasks' );
+	const callbacks = field( 'callbacks' );
+	// A task and the callbacks that keep it on the main lane, as lib/parallel_step.as decides. A run that ends without
+	// contacts may never have had any for the narrow phase.
+	const collide = field( 'contacts' ) > 0 ? 2 : 0;
+	const ran = [ [ 1, 0, 'parSolves' ], [ collide, 2 | 4 | 8, 'parCollides' ], [ 4, 0, 'parFinalizes' ], [ 8, 1, 'parPairs' ] ]
+		.filter( ( [ task, blockers ] ) => ( tasks & task ) !== 0 && ( callbacks & blockers ) === 0 );
+	const idle = ran.find( ( [ , , name ] ) => field( name ) <= 0 );
+	if ( size !== expected || size < 1 )
 	{
 		problems.push( `Parallel.size() is ${size}` );
 	}
-	else if ( field( 'parSolves' ) <= 0 )
+	else if ( tasks < 0 )
 	{
-		problems.push( 'no solver call ran on parts' );
+		problems.push( 'no result line' );
 	}
-	else if ( field( 'parts' ) !== expected )
+	else if ( idle !== undefined )
+	{
+		problems.push( `${idle[2]} is ${field( idle[2] )}` );
+	}
+	else if ( ( tasks & 1 ) !== 0 && field( 'parts' ) !== expected )
 	{
 		problems.push( `the solver ran on ${field( 'parts' )} parts` );
 	}
@@ -109,7 +144,7 @@ let compared = 0;
 let divergence = '-';
 for ( let step = 0; step < reference.length && divergence === '-'; ++step )
 {
-	const logged = steps.get( step );
+	const logged = run.steps.get( step );
 	const wanted = reference[step];
 	if ( logged === undefined || wanted === undefined )
 	{
@@ -126,9 +161,10 @@ for ( let step = 0; step < reference.length && divergence === '-'; ++step )
 	}
 	compared += divergence === '-' ? 1 : 0;
 }
-if ( problems.length > 0 && divergence === '-' )
+// A problem says more than the step it stopped the run at
+if ( problems.length > 0 )
 {
-	divergence = problems[0].replace( /^.*?\] /, '' ).slice( 0, 120 );
+	divergence = problems[0];
 }
 const pass = compared > 0 && compared === reference.length && problems.length === 0;
 console.log( `RESULT ${label} ${compared} ${pass ? 'pass' : 'fail'} ${divergence}` );
