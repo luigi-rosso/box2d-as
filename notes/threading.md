@@ -24,6 +24,9 @@ b2SetParallelLimit(4);                           // optional: at most 4 parts, 0
 - A build that never imports `lib/parallel_step` has no parallel call and no parallel copies: `Parallel.inPart()` is
   the constant false there and the serial path is what it was.
 - It needs a runtime with parallel calls. One from before 4a861ff147 traps on the first call.
+- Call it between steps: a locked world refuses it as it refuses `b2World_SetWorkerCount`. `Parallel.size()` is 1 in
+  a file's top level code and under a debugger, and a world enabled there stays on one part until it is enabled again.
+- A step that fails, in a part or not, leaves the world locked, as it does without parallel calls.
 
 ## Results
 
@@ -35,6 +38,8 @@ Bit exact at every part count, on rive master at 5d0e608da3 (rasc, rive-cli and 
 | the same on the scalar artifact (`WASM_SIMD=off`), 5 scenes at 1 and 4 parts | 10 | 10 |
 | the same on the interpreter (`TIER=interp`), 5 scenes at 1 and 4 parts | 10 | 10 |
 | rain, smash, spinner, joint_grid and churn at 8 parts, three runs each | 15 | 15 |
+| `CALLBACKS=63 verify/threads.sh`: 11 scenes at the same part counts, with stateful callbacks and bullets, against the serial port's run | 55 | 55 |
+| `verify/parts.sh`: pyramid and large_pyramid at 2, 4 and 8 parts with part 0 running no block, and again with a sync every 8 polls; a trap in a worker and one in part 0 | 14 | 14 |
 
 In browsers (`bench/web/parallel.mjs`: the same bakes on a cross origin isolated page over librive's web scripting
 harness, built with threads from the same master; headless Chrome 157, WebKit 27.2 and Firefox 157): pyramid, joints,
@@ -43,10 +48,11 @@ browser, and no run hung. Only parts other than 0 sleep, since a page's thread m
 
 Each run logs, for every step, the hash of the bodies' state and the hash of the whole trajectory record but its
 build and worker dependent counters (`verify/scenes/record.as`), so contact, sensor, joint and body events, counters,
-sleep flags and the scenes' probes are held to the native recording too, not only poses. The build before the
-workers learned to sleep passed the repeated runs with the machine at a load of 250, which shakes out races better
-than a quiet one. The serial gates (`run.sh`,
-`traj.sh`, `heap.mjs`) pass unchanged on both artifacts.
+sleep flags and the scenes' probes are held to the native recording too, not only poses. The checker also fails a
+run whose `Parallel.size()` or whose solver calls' part count is not what it was given, or that never ran a task on
+parts that it was asked to. All of it ran on the final lib with the machine at a load of 200 to 600 from other work,
+which shakes out races better than a quiet one. The serial gates (`run.sh`, `traj.sh`, `heap.mjs`) pass unchanged on
+both artifacts.
 
 Whole step, ms per step (`bench/as/threads.sh`, session `bench/as/out/threads_20261115_200056.log`, AOT -O3 with
 hardware bounds as master's CLI ships, SIMD artifact, Apple M5 Max (6 performance and 12 efficiency cores), 2 rounds interleaved with native
@@ -157,7 +163,7 @@ Within the spread at 2 and 4 parts; rain at 8 parts, more than the machine has f
 
 | task | C | here |
 |---|---|---|
-| solver stages | `b2SolverTask`: worker 0 orchestrates, the others spin on the sync bits and CAS claim blocks from their home index | the same function, one `Parallel.runUpTo` per step with a part as each worker (`b2SolverWorker(context, part.index)`): part 0 orchestrates, and C's atomics are real atomics inside a part. Where C's worker yields, a part sleeps on the sync bits once it has spun for a while, and part 0 wakes it with the next stage |
+| solver stages | `b2SolverTask`: worker 0 orchestrates, the others spin on the sync bits and CAS claim blocks from their home index | the same function, one `Parallel.runUpTo` per step with a part as each worker (`b2SolverWorker(context, part.index, part)`): part 0 orchestrates, and C's atomics are real atomics inside a part. Where C's worker yields, a part sleeps on the sync bits once it has spun for a while, and part 0 wakes it with the next stage |
 | narrow phase | `b2ParallelFor(b2CollideTask)` | one call claiming C's block sizes |
 | tree update | a task of its own that overlaps the narrow phase and the solver | the last part of the solver's call builds the trees before it joins the stages; the main lane reserves the arrays when C would queue the task and swaps the built nodes in after the call, where C finishes it |
 | finalize bodies | `b2ParallelFor(b2FinalizeBodiesTask)`, continuous collision inline | one call, continuous included |
@@ -170,7 +176,16 @@ A task answers false and runs inline, as before, when the world cannot run it on
 - pair finding: a custom filter is set, or the key list filled up (it is then made four times larger for the next step);
 - continuous collision inside finalize: the world has sensors (a sweep pushes sensor hits), a custom filter or a
   pre-continuous callback. The parts then finalize every body but leave the fast ones in their task context, and the
-  main lane sweeps those after the call. A sweep reads only its own body and static shapes, so the order is free.
+  main lane sweeps those after the call.
+
+Callbacks so run only on the main lane, and in the serial step's order: the main lane sorts the fast bodies the parts
+left it, and the bullets they listed, by sim index before it sweeps them, since parts list them in the order they
+claimed blocks. A callback that keeps state of its own, a counter or a random number, then answers as it does in the
+serial step. `CALLBACKS=63 verify/threads.sh` holds that with callbacks whose answers depend on how many calls came
+before, and with about half the dynamic bodies bullets so both sweeps make them. What a callback reads from the world
+inside a sweep is not the same: the left over sweeps run once every body is finalized, where the serial step has
+finalized only the bodies before the one it sweeps. C's workers finalize while its callbacks run, so it promises
+neither.
 
 ## What the port needed
 
@@ -195,8 +210,29 @@ A task answers false and runs inline, as before, when the world cannot run it on
   After 2048 yields in one wait (some tens of microseconds) a worker now sleeps with `atomic.wait` on the sync bits,
   and part 0 calls `atomic.notify` when it stores new ones and a worker sleeps (`b2YieldWorker`,
   `b2PublishSyncBits`). Only parts other than 0 wait, as a page's thread may not.
+- **A sync when a stage wait runs long.** With C's scheme a part that traps would hang the call: the trapped worker
+  never adds its completion count, part 0 spins on it, and no part can read the call's stop flag, which only
+  `part.sync()` checks. So each time part 0 has polled one stage 2^24 times it bumps a count in the step context and
+  syncs, and a worker that finds the count changed in its wait loop syncs too (`b2RequestSync`, `b2AnswerSync`). If
+  a part trapped the sync fails the call with its error; otherwise every part goes on once all have arrived, which
+  costs one of the old barriers, a part that has not started yet included. A run that needed none reports
+  `parStageSyncs=0`, as the gate's runs did with the machine at a load of 600. The other way round, a worker that
+  has slept 500 times in one wait returns, so the call ends once the workers have, and part 0 can finish any step
+  without them: one that part 0 leaves alone for half a second finishes on part 0.
+  - How long a trap takes to end the call depends on the tier, since 2^24 polls do. With a trap injected at 4 and 8
+    parts on AOT, a worker's trap ends the call in about 30 ms and part 0's in about 0.6 s. On the interpreter a
+    worker's took 2.4 to 2.9 s on a loaded machine, and part 0's 26 ms, since the host stops the other parts there.
+    Before this a worker's trap hung the call until it was killed.
+  - On a page a requested sync is also where the host gives up on a team thread that has not started its part
+    within a second, which it otherwise does at the join.
+  - `verify/parts.sh` holds all of it on edited copies: part 0 running no block (the other parts must run them all),
+    a sync every 8 polls, and a trap in a worker and in part 0.
+  - It costs nothing that shows. Interleaved with the lib before it on large_pyramid and rain at 1, 2, 4 and 8 parts
+    (load 9 to 15, min over 4 to 8 rounds of the best of 3 repeats), the step is within 3% either way, 8% faster in
+    one row, and no run made a stage sync. The tables above were measured before it.
 - **Marked `@parallel.shared`**: the identity body state and the zero contact sim (stand-ins nothing writes), the
-  worker polygons and pair contexts (indexed by worker), the tree rebuild stacks (one part rebuilds).
+  worker polygons and pair contexts (indexed by worker), the tree rebuild stacks (one part rebuilds), the stats
+  (among the parts only part 0 writes them).
 
 The build check found every one of these but the atomics. The solver stages compiled on the first build with two
 warnings, both for stand-ins that are never written; the narrow phase named three callbacks and three scratch globals;
@@ -214,7 +250,9 @@ Size: `lib/parallel_step.as` is about 200 lines, and making the rest of lib para
   in a world with sensors.
 - **Bullets, sensor overlaps and the island split** still run on the main lane. Only scenes with many bullets or
   sensors would notice.
-- **A trap inside the solver call needs the host to stop the other parts.** The workers wait on the sync bits and
-  part 0 spins on a stage's completion count, as in C, so a part cannot see that another one trapped; `part.sync()`
-  checks the call's stop flag, user code has no way to. Natively the runtime interrupts the parts, and a metered bake
-  runs out of fuel; a browser running a bake without fuel, or a `dangerouslyFast` one, would wait on.
+- **A part cannot read its call's stop flag**, which is why a trap is found by a sync after a long wait and not at
+  once. A std accessor for it would let both wait loops poll it and drop the sync requests and the worker's idle
+  limit.
+- **The gates do not hold speed.** A build that stopped using the parts after the first step, or whose workers
+  parked where they should work, would pass them as long as its results were right; `bench/as/threads.sh` shows it
+  in the scaling.
