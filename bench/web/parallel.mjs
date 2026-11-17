@@ -101,7 +101,7 @@ try
 			const log = join( logs, `${scene}_${p}.log` );
 			writeFileSync( log, lines.join( '\n' ) + '\n' );
 			const check = spawnSync( 'node', [ join( root, 'verify', 'threads.mjs' ),
-				join( root, 'verify', 'scenes', 'out', `${scene}_scalar_w1.bin` ), log, `${scene} P${p} ${browserName}`, p ],
+				join( root, 'verify', 'scenes', 'out', `${scene}_scalar_w1.bin` ), log, `${scene} P${p} ${browserName}`, p, '15' ],
 			{ encoding: 'utf8' } );
 			const size = lines.join( '\n' ).match( /BENCH parallel size=(\d+)/ )?.[1] ?? '-';
 			console.log( `${check.stdout.trim()} size ${size}` );

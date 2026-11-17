@@ -9,19 +9,19 @@
 # PARTS="1 2 4 8 default" picks the part counts: 1 is --parallel-safe, n is --job-threads=n-1, default the CLI's pool.
 # TASKS picks lib/parallel_step's task bits, every task by default. TIER=interp runs without wamrc. WASM_SIMD=off
 # takes the scalar artifact. CALLBACKS=63 sets bench/as's callbacks, any of its mask's bits, and holds each run to the
-# serial port's run with them instead. A run gets TIMEOUT seconds, bake included, 1800 by default. RIVE and RIVE_WAMRC
-# name the CLI and its wamrc. PROJECT names a copy of bench/as to run as it is, which is how verify/parts.sh runs
-# its edited ones.
+# serial port's run with them instead; a list of masks runs the scenes once per mask. All at once hides a task that
+# forgot one of several callbacks that keep it off the parts, so the gate is two commands:
+#   CALLBACKS=63 verify/threads.sh
+#   CALLBACKS="33 34 36 40 48" PARTS="4 8" verify/threads.sh shape_rain bullets    each callback alone, where it is called
+# A run gets TIMEOUT seconds, bake included, 1800 by default. RIVE and RIVE_WAMRC name the CLI and its wamrc. PROJECT
+# names a copy of bench/as to run as it is, which is how verify/parts.sh runs its edited ones.
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/toolchain.sh"
 project=${PROJECT:-$here/../bench/as}
 parts=${PARTS:-1 2 4 8 default}
 tasks=${TASKS:-15}
 tier=${TIER:-aot}
-callbacks=${CALLBACKS:-0}
 timeout=${TIMEOUT:-1800}
-tag="T$tasks"
-[ "$callbacks" = 0 ] || tag="${tag}C$callbacks"
 
 scenes=()
 large=0
@@ -73,30 +73,34 @@ run_bench() (
 
 results=()
 failed=0
-for s in "${scenes[@]}"; do
-	ref="$here/scenes/out/${s}_scalar_w1.bin"
-	if [ ! -f "$ref" ]; then
-		echo "missing $ref; record it with NATIVE=1 verify/traj.sh $s"
-		failed=$((failed + 1))
-		continue
-	fi
-	steps=$(node "$here/threads.mjs" "$ref" --steps)
-	if [ "$callbacks" != 0 ]; then
-		run_bench "$s" "$steps" 0 --parallel-safe > "$serial" 2>&1
-		ref=$serial
-	fi
-	for p in $parts; do
-		case $p in
-			1) threads=--parallel-safe ;;
-			default) threads= ;;
-			*) threads=--job-threads=$((p - 1)) ;;
-		esac
-		run_bench "$s" "$steps" "$tasks" $threads > "$log" 2>&1
-		r=$(node "$here/threads.mjs" "$ref" "$log" "$s P$p $tag" "$p")
-		status=$?
-		echo "$r"
-		results+=("$r")
-		[ $status -eq 0 ] || failed=$((failed + 1))
+for callbacks in ${CALLBACKS:-0}; do
+	tag="T$tasks"
+	[ "$callbacks" = 0 ] || tag="${tag}C$callbacks"
+	for s in "${scenes[@]}"; do
+		ref="$here/scenes/out/${s}_scalar_w1.bin"
+		if [ ! -f "$ref" ]; then
+			echo "missing $ref; record it with NATIVE=1 verify/traj.sh $s"
+			failed=$((failed + 1))
+			continue
+		fi
+		steps=$(node "$here/threads.mjs" "$ref" --steps)
+		if [ "$callbacks" != 0 ]; then
+			run_bench "$s" "$steps" 0 --parallel-safe > "$serial" 2>&1
+			ref=$serial
+		fi
+		for p in $parts; do
+			case $p in
+				1) threads=--parallel-safe ;;
+				default) threads= ;;
+				*) threads=--job-threads=$((p - 1)) ;;
+			esac
+			run_bench "$s" "$steps" "$tasks" $threads > "$log" 2>&1
+			r=$(node "$here/threads.mjs" "$ref" "$log" "$s P$p $tag" "$p" "$tasks")
+			status=$?
+			echo "$r"
+			results+=("$r")
+			[ $status -eq 0 ] || failed=$((failed + 1))
+		done
 	done
 done
 rm -f "$log" "$serial"

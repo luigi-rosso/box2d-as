@@ -1,15 +1,19 @@
 #!/bin/bash
 # What verify/threads.sh cannot see, each held on a copy of bench/as with one edit to lib/solver.as:
-#   workers  part 0 runs no block of a stage it published, so a step ends only if the other parts run them all
+#   workers  part 0 runs no block of a stage it published, so a step ends only if the other parts can run them all
 #   syncs    part 0 asks every part to sync after 8 polls of a stage wait, not 2^24, so requests and answers run
-#   trap     a worker traps inside a block from step 20 on, and the call has to end with that error
+#   trap     a worker traps inside a block from step 20 on, and the call has to end with an error, not hang
 #   trap0    part 0 traps after it published a stage in step 20, the same
 # workers and syncs must stay bit exact against the native recording at 2, 4 and 8 parts (PARTS), and syncs must have
 # synced.
 #   verify/parts.sh [scene...]    pyramid and large_pyramid by default
-# A hang fails at verify/threads.sh's TIMEOUT.
+# A scene needs stages of more than one block, as those two have: a small one publishes none, so it makes no sync
+# and reaches no trap. A hang fails at verify/threads.sh's TIMEOUT. It runs the SIMD artifact. It does not hold
+# speed: workers that are slow to answer a sync, or that leave the work to part 0 in an unedited build, pass.
 here="$(cd "$(dirname "$0")" && pwd)"
 project="$here/../bench/as"
+# The scalar artifact runs from another directory, where the checks below would not find its log
+unset WASM_SIMD
 scenes=("$@")
 [ ${#scenes[@]} -gt 0 ] || scenes=(pyramid large_pyramid)
 "$project/sync.sh"

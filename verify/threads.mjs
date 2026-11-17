@@ -5,11 +5,12 @@
 // probes are held too, and how many callbacks the step had made. The reference is a native recording, or the log of
 // the serial port's run for a run with callbacks, which no recording has. node cannot run parallel calls, so the run
 // happens in rive-cli and this reads its log.
-//   node verify/threads.mjs <recording.bin | serial.log> <run.log> <label> [parts]
+//   node verify/threads.mjs <recording.bin | serial.log> <run.log> <label> [parts tasks]
 //   node verify/threads.mjs <recording.bin> --steps
-// parts, a count or default, also fails a run whose Parallel.size() is not that, whose solver calls did not get that
-// many parts, or that never ran a task it was asked to run on parts. Whether the parts other than 0 did any of the
-// work it cannot say; verify/parts.sh holds that.
+// parts, a count or default, and tasks, lib/parallel_step's bits, also fail a run whose Parallel.size() is not that,
+// that stepped other tasks, that never ran one of them on parts, or none of whose solver calls got that many parts.
+// It cannot say that every call did, or how much of the work the parts other than 0 took: a build that is only
+// slower passes.
 // Prints one RESULT line: RESULT <label> <steps compared> <pass|fail> <first divergence or ->
 
 import { readFileSync } from 'node:fs';
@@ -48,8 +49,12 @@ function recordHashes( bytes )
 	return hashes;
 }
 
-// What stops a run short of its result or makes the result worthless
-const PROBLEM = /trapped|failed|gave up| error |RuntimeError|Uncaught|timed out/;
+// What stops a run short of its result or makes the result worthless: the CLI's error lines, this bench's and the
+// gates' own, a browser's
+const PROBLEM = /trapped|\] error |gave up|BENCH failed|^failed|timed out|RuntimeError|Uncaught/;
+
+// lib/constants.as B2_MAX_WORKERS, the most parts a world steps on
+const MAX_WORKERS = 32;
 
 // What a run logged: its problems, each step's hashes and callback count, and the fields of its result line
 function readLog( file )
@@ -76,7 +81,7 @@ function readLog( file )
 	return { problems, steps, field, size };
 }
 
-const [file, logFile, label, parts] = process.argv.slice( 2 );
+const [file, logFile, label, parts, asked] = process.argv.slice( 2 );
 const problems = [];
 let reference;
 if ( file.endsWith( '.bin' ) )
@@ -130,11 +135,15 @@ if ( parts !== undefined )
 	{
 		problems.push( 'no result line' );
 	}
+	else if ( tasks !== Number( asked ) )
+	{
+		problems.push( `the run stepped tasks ${tasks}` );
+	}
 	else if ( idle !== undefined )
 	{
 		problems.push( `${idle[2]} is ${field( idle[2] )}` );
 	}
-	else if ( ( tasks & 1 ) !== 0 && field( 'parts' ) !== expected )
+	else if ( ( tasks & 1 ) !== 0 && field( 'parts' ) !== Math.min( expected, MAX_WORKERS ) )
 	{
 		problems.push( `the solver ran on ${field( 'parts' )} parts` );
 	}
