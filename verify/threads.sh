@@ -9,8 +9,9 @@
 # PARTS="1 2 4 8 default" picks the part counts: 1 is --parallel-safe, n is --job-threads=n-1, default the CLI's pool.
 # TASKS picks lib/parallel_step's task bits, every task by default. TIER=interp runs without wamrc. WASM_SIMD=off
 # takes the scalar artifact. CALLBACKS=63 sets bench/as's callbacks, any of its mask's bits, and holds each run to the
-# serial port's run with them instead; a list of masks runs the scenes once per mask. All at once hides a task that
-# forgot one of several callbacks that keep it off the parts, so the gate is two commands:
+# serial port's run with them instead; a list of masks runs the scenes once per mask. A scene whose serial run calls
+# none of them fails, as joint_grid does, which has no contacts. All at once hides a task that forgot one of several
+# callbacks that keep it off the parts, so the gate is two commands:
 #   CALLBACKS=63 verify/threads.sh
 #   CALLBACKS="33 34 36 40 48" PARTS="4 8" verify/threads.sh shape_rain bullets    each callback alone, where it is called
 # A run gets TIMEOUT seconds, bake included, 1800 by default. RIVE and RIVE_WAMRC name the CLI and its wamrc. PROJECT
