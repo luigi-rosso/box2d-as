@@ -1,21 +1,20 @@
 #!/bin/bash
 # What verify/threads.sh cannot see, each held on a copy of bench/as with lib/solver.as edited:
-#   workers  part 0 runs no block of a stage it published and the others never leave, so a step ends only if they
-#            can run every block
-#   syncs    part 0 asks every part to sync after 8 polls of a stage wait, not 2^24, so requests and answers run
-#   trap     a worker traps inside a block from step 20 on, and the call has to end with an error, not hang
+#   workers  part 0 runs no block of a stage it published, so a step ends only if the others can run every block
+#   reads    part 0 reads the stop flag at every poll of a stage wait, not once in 65536, so healthy steps run it
+#   trap     every worker traps inside a block from step 20 on, and the call has to end with an error, not hang
 #   trap0    part 0 traps after it published a stage in step 20, the same
-# workers and syncs must stay bit exact against the native recording at 2, 4 and 8 parts (PARTS, none of them 1), and
-# the last run of syncs must have synced.
+# workers and reads must stay bit exact against the native recording at 2, 4 and 8 parts (PARTS, none of them 1).
 #   verify/parts.sh [scene...]    pyramid and large_pyramid by default
-# A scene needs stages of more than one block, as those two have: a small one publishes none, so it makes no sync
-# and reaches no trap. A hang fails at verify/threads.sh's TIMEOUT. It runs every task on the SIMD artifact. It does
-# not hold speed: workers that are slow to answer a sync or that leave the work to part 0 in an unedited build pass,
-# and so does a trap that takes minutes to end the call.
+# A scene needs stages of more than one block, as those two have: a small one publishes none, so it reaches no
+# trap. A hang fails at verify/threads.sh's TIMEOUT. It runs every task on the SIMD artifact and on AOT: the
+# interpreter's host ends the workers of a failed call itself, so trap0 would pass there without their read. It does
+# not hold speed: workers that leave the work to part 0 in an unedited build pass, and so does a trap that takes
+# minutes to end the call.
 here="$(cd "$(dirname "$0")" && pwd)"
 project="$here/../bench/as"
-# The caller's would take the runs off the solver's task, off the native recording, or to another directory's log
-unset TASKS CALLBACKS WASM_SIMD
+# The caller's would take the runs off the solver's task, the native recording, the SIMD artifact or AOT
+unset TASKS CALLBACKS WASM_SIMD TIER
 for p in $PARTS; do
 	if [ "$p" = 1 ]; then
 		echo "PARTS cannot hold 1: with part 0 running no block, a step on one part never ends" >&2
@@ -39,9 +38,7 @@ trap = '''if (Parallel.inPart() && %s) {
 			}
 '''
 edits = {
-	# The workers never leave either, since no step can end without them
-	'workers': [
-		('''		b2ExecuteStage(stage, context, previousSyncIndex, syncIndex, workerIndex);
+	'workers': [('''		b2ExecuteStage(stage, context, previousSyncIndex, syncIndex, workerIndex);
 
 		// Spin waiting for thieves to finish
 ''', '''		if (Parallel.inPart() == false) {
@@ -49,10 +46,8 @@ edits = {
 		}
 
 		// Spin waiting for thieves to finish
-'''),
-		('const B2_WORKER_IDLE_SLEEPS: i32 = 500;', 'const B2_WORKER_IDLE_SLEEPS: i32 = 1 << 30;'),
-	],
-	'syncs': [('const B2_STAGE_SYNC_POLLS: i32 = 1 << 24;', 'const B2_STAGE_SYNC_POLLS: i32 = 8;')],
+''')],
+	'reads': [('const B2_STAGE_STOP_POLLS: i32 = 1 << 16;', 'const B2_STAGE_STOP_POLLS: i32 = 1;')],
 	'trap': [('''			b2ExecuteBlock(stage, context, syncBlock.block, workerIndex);
 			completedCount += 1;
 ''', '			' + trap % 'workerIndex != 0 && context.world.stepIndex >= 20' + '''			b2ExecuteBlock(stage, context, syncBlock.block, workerIndex);
@@ -76,19 +71,11 @@ PY
 }
 
 failed=0
-for v in workers syncs; do
+for v in workers reads; do
 	variant $v || exit 2
 	PROJECT="$work/$v" PARTS="${PARTS:-2 4 8}" "$here/threads.sh" "${scenes[@]}" > "$work/$v.out" || failed=$((failed + 1))
 	grep "^RESULT" "$work/$v.out" | sed "s/^RESULT/$v/"
 done
-# The last run's log
-synced=$(sed -n 's/.* parStageSyncs=\([0-9]*\).*/\1/p' "$work/syncs/build/rive.log" | tail -1)
-if [ "${synced:-0}" -gt 0 ]; then
-	echo "syncs made $synced stage syncs in its last run"
-else
-	echo "syncs fail: no stage sync was made"
-	failed=$((failed + 1))
-fi
 
 for v in trap trap0; do
 	variant $v || exit 2

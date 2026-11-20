@@ -413,61 +413,61 @@ export struct b2JointPayload {
 
 // C points at a joint sim and its union member; these view memory at a sim's address so they bind by ref
 // in place, valid until the sim's array grows
-@inline export unsafe function b2JointSimAddress(sims: StaticArray<b2JointSim>, index: i32): usize {
+@inline export function b2JointSimAddress(sims: StaticArray<b2JointSim>, index: i32): usize {
 	if (B2_ASSERT_ENABLED) B2_ASSERT(0 <= index && index < sims.length);
 	return changetype<usize>(sims) + <usize>index * sizeof<b2JointSim>();
 }
 
-@inline export unsafe function b2JointSimAt(sim: usize): StaticArray<b2JointSim> {
+@inline export function b2JointSimAt(sim: usize): StaticArray<b2JointSim> {
 	return changetype<StaticArray<b2JointSim>>(sim);
 }
 
-@inline export unsafe function b2DistanceJointAt(sim: usize): StaticArray<b2DistanceJoint> {
+@inline export function b2DistanceJointAt(sim: usize): StaticArray<b2DistanceJoint> {
 	return changetype<StaticArray<b2DistanceJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
-@inline export unsafe function b2MotorJointAt(sim: usize): StaticArray<b2MotorJoint> {
+@inline export function b2MotorJointAt(sim: usize): StaticArray<b2MotorJoint> {
 	return changetype<StaticArray<b2MotorJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
-@inline export unsafe function b2MoverJointAt(sim: usize): StaticArray<b2MoverJoint> {
+@inline export function b2MoverJointAt(sim: usize): StaticArray<b2MoverJoint> {
 	return changetype<StaticArray<b2MoverJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
-@inline export unsafe function b2PogoJointAt(sim: usize): StaticArray<b2PogoJoint> {
+@inline export function b2PogoJointAt(sim: usize): StaticArray<b2PogoJoint> {
 	return changetype<StaticArray<b2PogoJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
-@inline export unsafe function b2RevoluteJointAt(sim: usize): StaticArray<b2RevoluteJoint> {
+@inline export function b2RevoluteJointAt(sim: usize): StaticArray<b2RevoluteJoint> {
 	return changetype<StaticArray<b2RevoluteJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
-@inline export unsafe function b2PrismaticJointAt(sim: usize): StaticArray<b2PrismaticJoint> {
+@inline export function b2PrismaticJointAt(sim: usize): StaticArray<b2PrismaticJoint> {
 	return changetype<StaticArray<b2PrismaticJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
-@inline export unsafe function b2WeldJointAt(sim: usize): StaticArray<b2WeldJoint> {
+@inline export function b2WeldJointAt(sim: usize): StaticArray<b2WeldJoint> {
 	return changetype<StaticArray<b2WeldJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
-@inline export unsafe function b2WheelJointAt(sim: usize): StaticArray<b2WheelJoint> {
+@inline export function b2WheelJointAt(sim: usize): StaticArray<b2WheelJoint> {
 	return changetype<StaticArray<b2WheelJoint>>(sim + offsetof<b2JointSim>("payload"));
 }
 
 
 // C points into a growable Array of joint sims; this views the Array's buffer as a StaticArray so an element binds
 // by ref in place. An Array's data is its buffer object, so the view's length is the capacity, never past it.
-@inline export unsafe function b2JointSimView(sims: Array<b2JointSim>): StaticArray<b2JointSim> {
+@inline export function b2JointSimView(sims: Array<b2JointSim>): StaticArray<b2JointSim> {
 	return changetype<StaticArray<b2JointSim>>(b2ArrayData(sims));
 }
 
 // C's writes through a body state pointer from b2StateAddress
-@inline export unsafe function b2WriteStateVelocity(state: usize, v: b2Vec2, w: f32): void {
+@inline export function b2WriteStateVelocity(state: usize, v: b2Vec2, w: f32): void {
 	store<b2Vec2>(state + offsetof<b2BodyState>("linearVelocity"), v);
 	store<f32>(state + offsetof<b2BodyState>("angularVelocity"), w);
 }
 
-@inline export unsafe function b2WriteStateLinearVelocity(state: usize, v: b2Vec2): void {
+@inline export function b2WriteStateLinearVelocity(state: usize, v: b2Vec2): void {
 	store<b2Vec2>(state + offsetof<b2BodyState>("linearVelocity"), v);
 }
 
@@ -506,7 +506,7 @@ export function b2GetJointSim(world: b2World, jointId: i32): b2JointSim {
 }
 
 // Bind the sim in place with ref sim = view[world.joints[jointId].localIndex]
-export unsafe function b2GetJointSimView(world: b2World, jointId: i32): StaticArray<b2JointSim> {
+export function b2GetJointSimView(world: b2World, jointId: i32): StaticArray<b2JointSim> {
 	return b2JointSimView(b2GetJointSimArray(world, jointId));
 }
 
@@ -526,13 +526,13 @@ export function b2GetJointSimCheckType(jointId: b2JointId, type: b2JointType): i
 
 // b2GetJointSimCheckType for the joint files: the view holding the sim, bound with
 // ref base = view[b2GetJointLocalIndex(jointId)]
-export unsafe function b2GetJointSimViewCheckType(jointId: b2JointId, type: b2JointType): StaticArray<b2JointSim> {
+export function b2GetJointSimViewCheckType(jointId: b2JointId, type: b2JointType): StaticArray<b2JointSim> {
 	let joint = b2GetJointSimCheckType(jointId, type);
 	return b2GetJointSimView(b2GetWorld(jointId.world0), joint);
 }
 
 // C's b2GetJointSimCheckType pointer, as an address for b2JointSimAt and the b2<Type>JointAt views
-export unsafe function b2GetJointSimAddressCheckType(jointId: b2JointId, type: b2JointType): usize {
+export function b2GetJointSimAddressCheckType(jointId: b2JointId, type: b2JointType): usize {
 	let joint = b2GetJointSimCheckType(jointId, type);
 	let world = b2GetWorld(jointId.world0);
 	return b2JointSimAddress(b2GetJointSimView(world, joint), world.joints[joint].localIndex);
@@ -763,7 +763,7 @@ function b2MakeJointId(world: b2World, jointId: i32): b2JointId {
 	return b2JointId(jointId + 1, world.worldId, world.joints[jointId].generation);
 }
 
-export unsafe function b2CreateDistanceJoint(worldId: b2WorldId, def: b2DistanceJointDef): b2JointId {
+export function b2CreateDistanceJoint(worldId: b2WorldId, def: b2DistanceJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreateDistanceJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -835,7 +835,7 @@ export function b2CreateFilterJoint(worldId: b2WorldId, def: b2FilterJointDef): 
 	return b2MakeJointId(world, id);
 }
 
-export unsafe function b2CreateMotorJoint(worldId: b2WorldId, def: b2MotorJointDef): b2JointId {
+export function b2CreateMotorJoint(worldId: b2WorldId, def: b2MotorJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreateMotorJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -881,7 +881,7 @@ export unsafe function b2CreateMotorJoint(worldId: b2WorldId, def: b2MotorJointD
 	return b2MakeJointId(world, joint.jointId);
 }
 
-export unsafe function b2CreateMoverJoint(worldId: b2WorldId, def: b2MoverJointDef): b2JointId {
+export function b2CreateMoverJoint(worldId: b2WorldId, def: b2MoverJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreateMoverJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -911,7 +911,7 @@ export unsafe function b2CreateMoverJoint(worldId: b2WorldId, def: b2MoverJointD
 	return b2MakeJointId(world, joint.jointId);
 }
 
-export unsafe function b2CreatePogoJoint(worldId: b2WorldId, def: b2PogoJointDef): b2JointId {
+export function b2CreatePogoJoint(worldId: b2WorldId, def: b2PogoJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreatePogoJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -953,7 +953,7 @@ export unsafe function b2CreatePogoJoint(worldId: b2WorldId, def: b2PogoJointDef
 	return b2MakeJointId(world, joint.jointId);
 }
 
-export unsafe function b2CreatePrismaticJoint(worldId: b2WorldId, def: b2PrismaticJointDef): b2JointId {
+export function b2CreatePrismaticJoint(worldId: b2WorldId, def: b2PrismaticJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreatePrismaticJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -997,7 +997,7 @@ export unsafe function b2CreatePrismaticJoint(worldId: b2WorldId, def: b2Prismat
 	return b2MakeJointId(world, joint.jointId);
 }
 
-export unsafe function b2CreateRevoluteJoint(worldId: b2WorldId, def: b2RevoluteJointDef): b2JointId {
+export function b2CreateRevoluteJoint(worldId: b2WorldId, def: b2RevoluteJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreateRevoluteJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -1046,7 +1046,7 @@ export unsafe function b2CreateRevoluteJoint(worldId: b2WorldId, def: b2Revolute
 	return b2MakeJointId(world, joint.jointId);
 }
 
-export unsafe function b2CreateWeldJoint(worldId: b2WorldId, def: b2WeldJointDef): b2JointId {
+export function b2CreateWeldJoint(worldId: b2WorldId, def: b2WeldJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreateWeldJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -1082,7 +1082,7 @@ export unsafe function b2CreateWeldJoint(worldId: b2WorldId, def: b2WeldJointDef
 	return b2MakeJointId(world, joint.jointId);
 }
 
-export unsafe function b2CreateWheelJoint(worldId: b2WorldId, def: b2WheelJointDef): b2JointId {
+export function b2CreateWheelJoint(worldId: b2WorldId, def: b2WheelJointDef): b2JointId {
 	B2_ASSERT(def.internalValue == B2_SECRET_COOKIE);
 	const fn = "b2CreateWheelJoint";
 	if (!b2CheckJointInput(b2IsValidJointDef(def.base), "b2IsValidJointDef( &def->base )", fn)) return b2JointId();
@@ -1240,7 +1240,7 @@ export function b2Joint_GetWorld(jointId: b2JointId): b2WorldId {
 	return b2WorldId(jointId.world0 + 1, world.generation);
 }
 
-export unsafe function b2Joint_SetLocalFrameA(jointId: b2JointId, localFrame: b2Transform): void {
+export function b2Joint_SetLocalFrameA(jointId: b2JointId, localFrame: b2Transform): void {
 	if (!b2CheckJointInput(b2IsValidTransform(localFrame), "b2IsValidTransform( localFrame )", "b2Joint_SetLocalFrameA")) {
 		return;
 	}
@@ -1251,14 +1251,14 @@ export unsafe function b2Joint_SetLocalFrameA(jointId: b2JointId, localFrame: b2
 	view[world.joints[joint].localIndex].localFrameA = localFrame;
 }
 
-export unsafe function b2Joint_GetLocalFrameA(jointId: b2JointId): b2Transform {
+export function b2Joint_GetLocalFrameA(jointId: b2JointId): b2Transform {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
 	return view[world.joints[joint].localIndex].localFrameA;
 }
 
-export unsafe function b2Joint_SetLocalFrameB(jointId: b2JointId, localFrame: b2Transform): void {
+export function b2Joint_SetLocalFrameB(jointId: b2JointId, localFrame: b2Transform): void {
 	if (!b2CheckJointInput(b2IsValidTransform(localFrame), "b2IsValidTransform( localFrame )", "b2Joint_SetLocalFrameB")) {
 		return;
 	}
@@ -1269,7 +1269,7 @@ export unsafe function b2Joint_SetLocalFrameB(jointId: b2JointId, localFrame: b2
 	view[world.joints[joint].localIndex].localFrameB = localFrame;
 }
 
-export unsafe function b2Joint_GetLocalFrameB(jointId: b2JointId): b2Transform {
+export function b2Joint_GetLocalFrameB(jointId: b2JointId): b2Transform {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
@@ -1436,7 +1436,7 @@ export function b2GetJointReaction(simAddress: usize, invTimeStep: f32, force: r
 	torque = angularImpulse * invTimeStep;
 }
 
-unsafe function b2GetJointConstraintForce(world: b2World, joint: i32): b2Vec2 {
+function b2GetJointConstraintForce(world: b2World, joint: i32): b2Vec2 {
 	let view = b2GetJointSimView(world, joint);
 	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
 	let baseView = b2JointSimAt(baseAddress);
@@ -1476,7 +1476,7 @@ unsafe function b2GetJointConstraintForce(world: b2World, joint: i32): b2Vec2 {
 	}
 }
 
-unsafe function b2GetJointConstraintTorque(world: b2World, joint: i32): f32 {
+function b2GetJointConstraintTorque(world: b2World, joint: i32): f32 {
 	let view = b2GetJointSimView(world, joint);
 	let baseAddress = b2JointSimAddress(view, world.joints[joint].localIndex);
 	let baseView = b2JointSimAt(baseAddress);
@@ -1510,19 +1510,19 @@ unsafe function b2GetJointConstraintTorque(world: b2World, joint: i32): f32 {
 	}
 }
 
-export unsafe function b2Joint_GetConstraintForce(jointId: b2JointId): b2Vec2 {
+export function b2Joint_GetConstraintForce(jointId: b2JointId): b2Vec2 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	return b2GetJointConstraintForce(world, joint);
 }
 
-export unsafe function b2Joint_GetConstraintTorque(jointId: b2JointId): f32 {
+export function b2Joint_GetConstraintTorque(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	return b2GetJointConstraintTorque(world, joint);
 }
 
-export unsafe function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
+export function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
@@ -1632,7 +1632,7 @@ export unsafe function b2Joint_GetLinearSeparation(jointId: b2JointId): f32 {
 	}
 }
 
-export unsafe function b2Joint_GetAngularSeparation(jointId: b2JointId): f32 {
+export function b2Joint_GetAngularSeparation(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
@@ -1694,7 +1694,7 @@ export unsafe function b2Joint_GetAngularSeparation(jointId: b2JointId): f32 {
 	}
 }
 
-export unsafe function b2Joint_SetConstraintTuning(jointId: b2JointId, hertz: f32, dampingRatio: f32): void {
+export function b2Joint_SetConstraintTuning(jointId: b2JointId, hertz: f32, dampingRatio: f32): void {
 	const fn = "b2Joint_SetConstraintTuning";
 	if (!b2CheckJointInput(b2IsValidFloat(hertz) && hertz >= 0.0, "b2IsValidFloat( hertz ) && hertz >= 0.0f", fn)) return;
 	if (!b2CheckJointInput(b2IsValidFloat(dampingRatio) && dampingRatio >= 0.0, "b2IsValidFloat( dampingRatio ) && dampingRatio >= 0.0f", fn)) return;
@@ -1709,7 +1709,7 @@ export unsafe function b2Joint_SetConstraintTuning(jointId: b2JointId, hertz: f3
 	base.constraintDampingRatio = dampingRatio;
 }
 
-export unsafe function b2Joint_GetConstraintTuning(jointId: b2JointId, hertz: ref f32, dampingRatio: ref f32): void {
+export function b2Joint_GetConstraintTuning(jointId: b2JointId, hertz: ref f32, dampingRatio: ref f32): void {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
@@ -1720,7 +1720,7 @@ export unsafe function b2Joint_GetConstraintTuning(jointId: b2JointId, hertz: re
 	dampingRatio = base.constraintDampingRatio;
 }
 
-export unsafe function b2Joint_SetForceThreshold(jointId: b2JointId, threshold: f32): void {
+export function b2Joint_SetForceThreshold(jointId: b2JointId, threshold: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(threshold) && threshold >= 0.0, "b2IsValidFloat( threshold ) && threshold >= 0.0f", "b2Joint_SetForceThreshold")) {
 		return;
 	}
@@ -1731,14 +1731,14 @@ export unsafe function b2Joint_SetForceThreshold(jointId: b2JointId, threshold: 
 	view[world.joints[joint].localIndex].forceThreshold = threshold;
 }
 
-export unsafe function b2Joint_GetForceThreshold(jointId: b2JointId): f32 {
+export function b2Joint_GetForceThreshold(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
 	return view[world.joints[joint].localIndex].forceThreshold;
 }
 
-export unsafe function b2Joint_SetTorqueThreshold(jointId: b2JointId, threshold: f32): void {
+export function b2Joint_SetTorqueThreshold(jointId: b2JointId, threshold: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(threshold) && threshold >= 0.0, "b2IsValidFloat( threshold ) && threshold >= 0.0f", "b2Joint_SetTorqueThreshold")) {
 		return;
 	}
@@ -1749,14 +1749,14 @@ export unsafe function b2Joint_SetTorqueThreshold(jointId: b2JointId, threshold:
 	view[world.joints[joint].localIndex].torqueThreshold = threshold;
 }
 
-export unsafe function b2Joint_GetTorqueThreshold(jointId: b2JointId): f32 {
+export function b2Joint_GetTorqueThreshold(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	let view = b2GetJointSimView(world, joint);
 	return view[world.joints[joint].localIndex].torqueThreshold;
 }
 
-export unsafe function b2PrepareJoint(jointAddress: usize, context: b2StepContext): void {
+export function b2PrepareJoint(jointAddress: usize, context: b2StepContext): void {
 	let jointView = b2JointSimAt(jointAddress);
 	ref joint = unchecked(jointView[0]);
 	// Clamp joint hertz based on the time step to reduce jitter.
@@ -1804,7 +1804,7 @@ export unsafe function b2PrepareJoint(jointAddress: usize, context: b2StepContex
 	}
 }
 
-export unsafe function b2WarmStartJoint(jointAddress: usize, context: b2StepContext): void {
+export function b2WarmStartJoint(jointAddress: usize, context: b2StepContext): void {
 	let jointView = b2JointSimAt(jointAddress);
 	ref joint = unchecked(jointView[0]);
 	switch (joint.type) {
@@ -1848,7 +1848,7 @@ export unsafe function b2WarmStartJoint(jointAddress: usize, context: b2StepCont
 	}
 }
 
-export unsafe function b2SolveJoint(jointAddress: usize, context: b2StepContext, useBias: bool): void {
+export function b2SolveJoint(jointAddress: usize, context: b2StepContext, useBias: bool): void {
 	let jointView = b2JointSimAt(jointAddress);
 	ref joint = unchecked(jointView[0]);
 	switch (joint.type) {
@@ -1892,7 +1892,7 @@ export unsafe function b2SolveJoint(jointAddress: usize, context: b2StepContext,
 	}
 }
 
-export unsafe function b2PrepareJoints_Overflow(context: b2StepContext): void {
+export function b2PrepareJoints_Overflow(context: b2StepContext): void {
 	let graph = context.graph;
 	let sims = graph.colors[B2_OVERFLOW_INDEX].jointSims;
 	let joints = b2JointSimView(sims);
@@ -1903,7 +1903,7 @@ export unsafe function b2PrepareJoints_Overflow(context: b2StepContext): void {
 	}
 }
 
-export unsafe function b2WarmStartJoints_Overflow(context: b2StepContext): void {
+export function b2WarmStartJoints_Overflow(context: b2StepContext): void {
 	let graph = context.graph;
 	let sims = graph.colors[B2_OVERFLOW_INDEX].jointSims;
 	let joints = b2JointSimView(sims);
@@ -1914,7 +1914,7 @@ export unsafe function b2WarmStartJoints_Overflow(context: b2StepContext): void 
 	}
 }
 
-export unsafe function b2SolveJoints_Overflow(context: b2StepContext, useBias: bool): void {
+export function b2SolveJoints_Overflow(context: b2StepContext, useBias: bool): void {
 	let graph = context.graph;
 	let sims = graph.colors[B2_OVERFLOW_INDEX].jointSims;
 	let joints = b2JointSimView(sims);
@@ -1925,7 +1925,7 @@ export unsafe function b2SolveJoints_Overflow(context: b2StepContext, useBias: b
 	}
 }
 
-export unsafe function b2PrepareJointsTask(block: b2SolverBlock, context: b2StepContext): void {
+export function b2PrepareJointsTask(block: b2SolverBlock, context: b2StepContext): void {
 	let spans = context.jointPrepareSpans;
 
 	let index = block.startIndex;
@@ -1954,7 +1954,7 @@ export unsafe function b2PrepareJointsTask(block: b2SolverBlock, context: b2Step
 	}
 }
 
-export unsafe function b2WarmStartJointsTask(block: b2SolverBlock, context: b2StepContext): void {
+export function b2WarmStartJointsTask(block: b2SolverBlock, context: b2StepContext): void {
 	let color = context.graph.colors[block.colorIndex];
 	let joints = b2JointSimView(color.jointSims);
 
@@ -1964,7 +1964,7 @@ export unsafe function b2WarmStartJointsTask(block: b2SolverBlock, context: b2St
 	}
 }
 
-export unsafe function b2SolveJointsTask(block: b2SolverBlock, context: b2StepContext, useBias: bool, workerIndex: i32): void {
+export function b2SolveJointsTask(block: b2SolverBlock, context: b2StepContext, useBias: bool, workerIndex: i32): void {
 	let color = context.graph.colors[block.colorIndex];
 	let joints = b2JointSimView(color.jointSims);
 

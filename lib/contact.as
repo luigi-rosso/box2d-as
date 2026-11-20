@@ -279,7 +279,7 @@ const b2_contactRegistryHasFcn = b2MakeRegistry(false);
 const b2_contactRegistryPrimary = b2MakeRegistry(true);
 
 // The primary manifold function of the registry for shapeA's type against shapeB's type
-unsafe function b2ComputeLocalManifold(
+function b2ComputeLocalManifold(
 	world: b2World,
 	shapeIdA: i32,
 	shapeIdB: i32,
@@ -330,7 +330,7 @@ export function b2CanCollide(typeA: b2ShapeType, typeB: b2ShapeType): bool {
 	return b2_contactRegistryHasFcn[typeA * b2_shapeTypeCount + typeB];
 }
 
-unsafe function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
+function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
 	let shapes = b2ArrayView(world.shapes);
 
 	// A part cannot call a function value, so a world with a custom callback collides on the main lane
@@ -349,7 +349,7 @@ unsafe function b2MixFrictionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): 
 	return b2MixFriction(shapes[shapeIdA].material.friction, shapes[shapeIdB].material.friction);
 }
 
-unsafe function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
+function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32): f32 {
 	let shapes = b2ArrayView(world.shapes);
 
 	if (!Parallel.inPart()) {
@@ -368,7 +368,7 @@ unsafe function b2MixRestitutionFor(world: b2World, shapeIdA: i32, shapeIdB: i32
 }
 
 // WARNING: this should never fail to create a contact because the pair already exists in the pairSet.
-export unsafe function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): void {
+export function b2CreateContact(world: b2World, shapeIdA: i32, shapeIdB: i32): void {
 	let type1 = world.shapes[shapeIdA].type;
 	let type2 = world.shapes[shapeIdB].type;
 
@@ -635,7 +635,7 @@ const b2_preSolveManifold = new b2PreSolveManifold();
 
 // Update the contact manifold and touching status.
 // Note: do not assume the shape AABBs are overlapping or are valid.
-export unsafe function b2UpdateContact(
+export function b2UpdateContact(
 	world: b2World,
 	contactSim: ref b2ContactSim,
 	shapeIdA: i32,

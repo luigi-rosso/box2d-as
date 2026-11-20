@@ -220,13 +220,13 @@ export const b2_identityBodyState: b2BodyState = b2MakeIdentityBodyState();
 
 // The element data of an Array of structs, for the solver's pointer walks; rasc refuses dataStart on value class
 // arrays. The address holds until the array grows, which no solver stage does.
-@inline export unsafe function b2ArrayData<A>(a: A): usize {
+@inline export function b2ArrayData<A>(a: A): usize {
 	return load<usize>(changetype<usize>(a) + offsetof<Array<i32>>("dataStart"));
 }
 
 // C points into a growable Array of structs; this views its buffer as a StaticArray so an element binds by ref in
 // place, valid until the array grows. An Array's data is its buffer object, so the view's length is the capacity.
-@inline export unsafe function b2ArrayView<A>(a: A): StaticArray<valueof<A>> {
+@inline export function b2ArrayView<A>(a: A): StaticArray<valueof<A>> {
 	return changetype<StaticArray<valueof<A>>>(b2ArrayData(a));
 }
 
@@ -242,7 +242,7 @@ function b2MakeIdentityStates(): StaticArray<b2BodyState> {
 
 // C's state pointer: the awake state at index, or the identity state for B2_NULL_INDEX. Index comes from a
 // constraint the solver prepared, so it is below the awake count.
-@inline export unsafe function b2StateAddress(states: Array<b2BodyState>, index: i32): usize {
+@inline export function b2StateAddress(states: Array<b2BodyState>, index: i32): usize {
 	return index == B2_NULL_INDEX
 		? changetype<usize>(b2_identityStates)
 		: b2ArrayData(states) + <usize>index * sizeof<b2BodyState>();
@@ -296,7 +296,7 @@ export function b2MakeRelativeSweep(bodySim: b2BodySim, base: b2Pos): b2Sweep {
 }
 
 // b2MakeRelativeSweep of the sim at an address, read in place as C reads through its pointer
-export unsafe function b2MakeRelativeSweepAt(bodySim: usize, base: b2Pos): b2Sweep {
+export function b2MakeRelativeSweepAt(bodySim: usize, base: b2Pos): b2Sweep {
 	let s: b2Sweep;
 	s.c1 = b2SubPos(load<b2Vec2>(bodySim + offsetof<b2BodySim>("center0")), base);
 	s.c2 = b2SubPos(load<b2Vec2>(bodySim + offsetof<b2BodySim>("center")), base);
@@ -313,7 +313,7 @@ export function b2GetBodySim(world: b2World, bodyId: i32): b2BodySim {
 }
 
 // The address of the sim b2GetBodySim returns, where C returns its pointer. Valid until the set's sim array grows.
-export unsafe function b2GetBodySimAddress(world: b2World, bodyId: i32): usize {
+export function b2GetBodySimAddress(world: b2World, bodyId: i32): usize {
 	let set = world.solverSets[world.bodies[bodyId].setIndex];
 	let localIndex = world.bodies[bodyId].localIndex;
 	if (B2_ASSERT_ENABLED) B2_ASSERT(0 <= localIndex && localIndex < set.bodySims.length);
@@ -2298,7 +2298,7 @@ export function b2Body_GetJoints(bodyId: b2BodyId, jointArray: StaticArray<b2Joi
 	return jointCount;
 }
 
-export unsafe function b2ShouldBodiesCollide(world: b2World, bodyIdA: i32, bodyIdB: i32): bool {
+export function b2ShouldBodiesCollide(world: b2World, bodyIdA: i32, bodyIdB: i32): bool {
 	let bodies = b2ArrayView(world.bodies);
 	ref bodyA = bodies[bodyIdA];
 	ref bodyB = bodies[bodyIdB];

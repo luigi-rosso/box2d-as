@@ -23,14 +23,17 @@ b2SetParallelLimit(4);                           // optional: at most 4 parts, 0
   (`--job-threads=n` gives n + 1, `--parallel-safe` 1). Results do not depend on it, as C's do not.
 - A build that never imports `lib/parallel_step` has no parallel call and no parallel copies: `Parallel.inPart()` is
   the constant false there and the serial path is what it was.
-- It needs a runtime with parallel calls. One from before 4a861ff147 traps on the first call.
+- It needs a runtime with parallel calls. One from before 4a861ff147 traps on the first call. The build needs rasc
+  and its std at 57e98c9a11 or later, for `Part.stopping()`. The serial build needs rasc from rive#15863 on too,
+  since the lib no longer marks its raw memory code `unsafe`.
 - Call it between steps: a locked world refuses it as it refuses `b2World_SetWorkerCount`. `Parallel.size()` is 1 in
   a file's top level code and under a debugger, and a world enabled there stays on one part until it is enabled again.
 - A step that fails, in a part or not, leaves the world locked, as it does without parallel calls.
 
 ## Results
 
-Bit exact at every part count, on rive master at 5d0e608da3 (rasc, rive-cli and a wamrc built from its WAMR patches):
+Bit exact at every part count, on rive master at 57e98c9a11 (rasc and rive-cli; the wamrc is the one built at
+5d0e608da3, master's WAMR patches being the same):
 
 | gate | runs | passed |
 |---|---|---|
@@ -40,7 +43,7 @@ Bit exact at every part count, on rive master at 5d0e608da3 (rasc, rive-cli and 
 | rain, smash, spinner, joint_grid and churn at 8 parts, three runs each | 15 | 15 |
 | `CALLBACKS=63 verify/threads.sh`: 11 scenes at the same part counts, with stateful callbacks and bullets, against the serial port's run | 55 | 55 |
 | `CALLBACKS="33 34 36 40 48" PARTS="4 8" verify/threads.sh shape_rain bullets`: each callback alone | 20 | 20 |
-| `verify/parts.sh`: pyramid and large_pyramid at 2, 4 and 8 parts with part 0 running no block, and again with a sync every 8 polls; on pyramid at 4 parts, a trap in a worker and one in part 0 | 14 | 14 |
+| `verify/parts.sh`: pyramid and large_pyramid at 2, 4 and 8 parts with part 0 running no block, and with part 0 reading the stop flag at every poll; on pyramid at 4 parts, a trap in every worker and one in part 0 | 14 | 14 |
 
 In browsers (`bench/web/parallel.mjs`: the same bakes on a cross origin isolated page over librive's web scripting
 harness, built with threads from the same master; headless Chrome 157, WebKit 27.2 and Firefox 157): pyramid, joints,
@@ -53,8 +56,9 @@ sleep flags and the scenes' probes are held to the native recording too, not onl
 run whose `Parallel.size()` is not what it was given, none of whose solver calls got that many parts, or that never
 ran a task on parts that it was asked to (the narrow phase only if the run ends with contacts). The table is one
 run of the gates in their final form. An earlier form of the threaded gates, which had no run of each callback
-alone, had passed on the same lib with the machine's load at several hundred, which shakes out races better than a
-quiet one, but for joint_grid: it has no contacts, and that checker asked every run for a narrow phase on parts.
+alone, had passed on the lib before the stop flag reads with the machine's load at several hundred, which shakes
+out races better than a quiet one, but for joint_grid: it has no contacts, and that checker asked every run for a
+narrow phase on parts.
 The serial gates pass on both artifacts: `run.sh` 16 of 16, `traj.sh` 18 of 18, and `heap.mjs` flat on its 11
 scenes.
 
@@ -216,29 +220,56 @@ neither.
   After 2048 yields in one wait (some tens of microseconds) a worker now sleeps with `atomic.wait` on the sync bits,
   and part 0 calls `atomic.notify` when it stores new ones and a worker sleeps (`b2YieldWorker`,
   `b2PublishSyncBits`). Only parts other than 0 wait, as a page's thread may not.
-- **A sync when a stage wait runs long.** With C's scheme a part that traps would hang the call: the trapped worker
-  never adds its completion count, part 0 spins on it, and no part can read the call's stop flag, which only
-  `part.sync()` checks. So each time part 0 has polled one stage 2^24 times it bumps a count in the step context and
-  syncs, and a worker that finds the count changed in its wait loop syncs too (`b2RequestSync`, `b2AnswerSync`). If
-  a part trapped the sync fails the call with its error; otherwise every part goes on once all have arrived, which
-  costs one of the old barriers, a part that has not started yet included. A run that needed none reports
-  `parStageSyncs=0`, as the 200 runs of `verify/threads.sh` in the table did but one, large_pyramid at the default
-  part count, which made one. The other way round, a worker that has slept more than 500 times in one wait returns,
-  so the call ends once the workers have, and part 0 can finish any step without them: one that part 0 leaves alone
-  for half a second finishes on part 0.
-  - How long a trap takes to end the call depends on the tier, since 2^24 polls do, and on the machine's load. With
-    a trap injected at 4 and 8 parts at loads of 20 to 150: on AOT a worker's trap ends the call in 7 to 37 ms and
-    part 0's in 0.6 to 0.8 s; on the interpreter a worker's in 0.1 to 0.6 s, and part 0's in 1 to 2 ms, since the
-    host stops the other parts there. Before this a worker's trap hung the call until it was killed.
-  - On a page a requested sync is also where the host gives up on a team thread that has not started its part
-    within a second, which it otherwise does at the join.
-  - `verify/parts.sh` holds it on edited copies: part 0 running no block (the other parts must be able to run them
-    all), a sync every 8 polls, and a trap in a worker and in part 0, which must end the call.
-  - It costs nothing that shows. Interleaved with the lib before it (8ce7469), min over 4 to 8 rounds at a load of
-    9 to 15: large_pyramid at 2, 4 and 8 parts and rain at 4 and 8 are within 3% either way, but for large_pyramid
-    at 4 parts, 7% faster. At 1 part the rounds wander more than the builds differ, so by median over 10 rounds at
-    a load of 5 to 21: 1.345 and 1.348 ms on large_pyramid, 2.365 and 2.365 on rain. No run made a stage sync. The
-    tables above were measured before it.
+- **The call's stop flag in both waits.** With C's scheme alone a part that traps would hang the call: a trapped
+  worker never adds its completion count and part 0 spins on it, and a trapped part 0 publishes no more sync bits
+  for the workers to wake on. So both waits read `part.stopping()`, true once the call was stopped, as it is when a
+  part fails: part 0 traps in its stage wait, as `part.sync()` does in its own, and a worker returns from its wait
+  for new bits. Part 0 reads it once in 65536 polls of a stage (`B2_STAGE_STOP_POLLS`), since on a page its read
+  calls the host; a worker reads it at every yield. It replaced a sync that part 0 asked of every part each 2^24
+  polls of a stage and a limit on a worker's sleeps, which the lib used until rive's std could read the flag
+  (rive#15864).
+  - With a trap injected in every worker's stage blocks, or in part 0 once it has published a stage, on
+    large_pyramid at 4 and 8 parts, at loads of 10 to 23, from the last good step's hash line to the error, which
+    the log stamps to the millisecond, beside the lib that requested syncs (4ac2fee): on AOT 1 ms for the workers'
+    trap and for part 0's, where that lib took 8 to 17 ms and 0.63 to 0.75 s; on the interpreter 5 to 9 ms and 2 to
+    5, where it took 106 to 154 ms and 2 to 7. When a part fails the host interrupts the workers, which the
+    interpreter honors and an AOT build without a host budget does not, so on the interpreter part 0's trap does not
+    wait for the workers' read.
+  - A worker that traps outside a stage block is waited on by no stage. On AOT the other workers leave at their next
+    wait and part 0 finishes the stages, unless one of its waits lasts long enough to read the flag. On the
+    interpreter the host interrupts the workers where they are, which can leave a stage short for part 0's read to
+    end. A trap at the start of the last part, before its tree update, took 1 to 2 ms on AOT and 3 to 4 on the
+    interpreter on that scene.
+  - On a page in Chrome, WebKit and Firefox the workers' trap and part 0's end the run with an `unreachable` error
+    0.6 to 2.1 ms after the last hash line, at 4 and 8 parts. With part 0's read taken out the workers' trap hangs
+    the page, and with the workers' read taken out part 0's does (Chrome, 4 parts). `bench/web/parallel.mjs` itself
+    injects no trap.
+  - On a page part 0's read also checks in with the host, which wakes the team again for a thread that has not
+    started its part and fails the call once it is a second old, as the join does after part 0 returns. So it can
+    fail only a solver call that lasts over a second, where the join would have passed it had the thread started by
+    the time the join ran.
+  - `verify/parts.sh` holds it on edited copies, on AOT: part 0 running no block (the other parts must be able to
+    run them all), part 0 reading the flag at every poll, which must change no step, and a trap in every worker and
+    in part 0, which must end the call. With part 0's read taken out the workers' trap hangs its run, and with the
+    workers' read taken out part 0's does. The lib that read at every poll had also passed `bench/web/parallel.mjs`
+    in the three browsers, 40 of 40 each.
+  - Few stage waits last 65536 polls. At 8 parts a step of large_pyramid has 94 stage waits. On AOT, at a load of 3
+    to 5, in three runs they polled 1900 times on average and 74000 at most, and part 0 read the flag at most 0.01
+    times a step there and on many_bodies, and 0.06 to 0.08 times on rain; once in 1024 polls it read it 90 to 150
+    times a step. On a page in Chrome at 8 parts it read it 0.01, 0.05 and 0.1 times a step on the three scenes, of
+    130000 to 150000 polls a step.
+  - No step time difference shows natively. Interleaved with the lib that requested syncs, that lib run twice a
+    round so that its ratio to itself shows, a cell's three runs back to back once the load was under 10; median
+    over 6 rounds of the paired ratio of the median step, on AOT: large_pyramid at 4 and 8 parts 0.99 and 0.94 (that
+    lib to itself 1.01 and 0.98), rain 0.97 and 1.03 (0.96 and 1.01), many_bodies at 8 parts 1.00 (1.01). One pair's
+    ratio runs from 0.7 to 1.3 for either. On the interpreter, in 6 rounds, large_pyramid at 4 and 8 parts read 1.00
+    and 1.00 (1.02 and 0.99).
+  - Nor on a page in Chrome at 8 parts: 0.99, 0.97 and 1.01 of that lib's median step on large_pyramid, many_bodies
+    and rain, by median over 12 rounds. A read on every poll of the stage wait, a host call each on a page, had read
+    1.03, 1.04 and 1.00 over 12 rounds and 1.03, 1.08 and 1.04 over 6 before them. No page round ran a build twice,
+    so none of these has a lib's ratio to itself beside it, and how much of the last six is the read is not known;
+    counting polls takes it out of the wait.
+  - The timing tables above were measured before it.
 - **Marked `@parallel.shared`**: the identity body state and the zero contact sim (stand-ins nothing writes), the
   worker polygons and pair contexts (indexed by worker), the tree rebuild stacks (one part rebuilds), the stats
   (among the parts only part 0 writes them).
@@ -259,10 +290,6 @@ Size: `lib/parallel_step.as` is about 200 lines, and making the rest of lib para
   in a world with sensors.
 - **Bullets, sensor overlaps and the island split** still run on the main lane. Only scenes with many bullets or
   sensors would notice.
-- **A part cannot read its call's stop flag**, which is why a trap is found by a sync after a long wait and not at
-  once. A std accessor for it would let both wait loops poll it and drop the sync requests and the worker's idle
-  limit.
 - **The gates do not hold speed.** A build that stopped using the parts after the first step, whose workers parked
-  where they should work, whose workers did not answer a sync until their idle limit, or whose trap took minutes to
-  end the call, would pass them as long as its results were right; `bench/as/threads.sh` shows the first three in
-  the scaling.
+  where they should work, or whose trap took minutes to end the call, would pass them as long as its results were
+  right; `bench/as/threads.sh` shows the first two in the scaling.

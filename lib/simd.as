@@ -308,7 +308,7 @@ export struct b2RotW {
 	return b2SplatL<T>(0.0);
 }
 
-@inline export unsafe function b2LoadL<T>(p: usize): T {
+@inline export function b2LoadL<T>(p: usize): T {
 	if (isFloat<T>()) {
 		return load<f32>(p);
 	} else {
@@ -316,7 +316,7 @@ export struct b2RotW {
 	}
 }
 
-@inline export unsafe function b2StoreL<T>(p: usize, a: T): void {
+@inline export function b2StoreL<T>(p: usize, a: T): void {
 	if (isFloat<T>()) {
 		store<f32>(p, a);
 	} else {
@@ -334,7 +334,7 @@ export struct b2RotW {
 }
 
 // b2SetL of the floats at four addresses, read straight into their lanes; a lane kernel reads a
-@inline export unsafe function b2SetLoadL<T>(a: usize, b: usize, c: usize, d: usize): T {
+@inline export function b2SetLoadL<T>(a: usize, b: usize, c: usize, d: usize): T {
 	if (isFloat<T>()) {
 		return load<f32>(a);
 	} else {
@@ -543,7 +543,7 @@ export struct b2ColumnsL<T> {
 }
 
 // b2AllZeroW over four floats in memory, for decisions a lane kernel shares across lanes
-@inline export unsafe function b2AllZeroAt(p: usize): bool {
+@inline export function b2AllZeroAt(p: usize): bool {
 	if (ASC_FEATURE_SIMD) {
 		return i32x4.all_true(f32x4.eq(v128.load(p), f32x4.splat(0.0)));
 	}
@@ -551,7 +551,7 @@ export struct b2ColumnsL<T> {
 }
 
 // Four floats into the 16 bytes at p; lanes only move bits, so both artifacts write the same memory.
-@inline export unsafe function b2StoreRow(p: usize, x: f32, y: f32, z: f32, w: f32): void {
+@inline export function b2StoreRow(p: usize, x: f32, y: f32, z: f32, w: f32): void {
 	if (ASC_FEATURE_SIMD) {
 		v128.store(p, f32x4.replace_lane(f32x4.replace_lane(f32x4.replace_lane(f32x4.splat(x), 1, y), 2, z), 3, w));
 	} else {

@@ -588,7 +588,7 @@ export function b2DestroyWorld(worldId: b2WorldId): void {
 
 // C returns a pointer to the sim; here its address, so the collide task reads only the fields it needs.
 // Valid during the collide task, which never grows a sim array.
-@inline unsafe function b2ResolveContactBodySim(
+@inline function b2ResolveContactBodySim(
 	world: b2World,
 	awakeSims: usize,
 	staticSims: usize,
@@ -615,7 +615,7 @@ export function b2SetParallelCollide(fcn: b2ParallelCollideFcn?): void {
 	b2_parallelCollide = fcn;
 }
 
-export unsafe function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
+export function b2CollideTask(startIndex: i32, endIndex: i32, workerIndex: i32, stepContext: b2StepContext): void {
 	let world = stepContext.world;
 	let taskContext = world.taskContexts[workerIndex];
 	let spans = stepContext.collideSpans;

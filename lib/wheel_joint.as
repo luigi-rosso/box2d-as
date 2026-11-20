@@ -35,7 +35,7 @@ import {
 	b2WriteStateVelocity,
 } from "./joint";
 
-export unsafe function b2WheelJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
+export function b2WheelJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableSpring != joint.enableSpring) {
@@ -44,13 +44,13 @@ export unsafe function b2WheelJoint_EnableSpring(jointId: b2JointId, enableSprin
 	}
 }
 
-export unsafe function b2WheelJoint_IsSpringEnabled(jointId: b2JointId): bool {
+export function b2WheelJoint_IsSpringEnabled(jointId: b2JointId): bool {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableSpring;
 }
 
-export unsafe function b2WheelJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
+export function b2WheelJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2WheelJoint_SetSpringHertz")) return;
 
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
@@ -58,13 +58,13 @@ export unsafe function b2WheelJoint_SetSpringHertz(jointId: b2JointId, hertz: f3
 	joint.hertz = hertz;
 }
 
-export unsafe function b2WheelJoint_GetSpringHertz(jointId: b2JointId): f32 {
+export function b2WheelJoint_GetSpringHertz(jointId: b2JointId): f32 {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.hertz;
 }
 
-export unsafe function b2WheelJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
+export function b2WheelJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(dampingRatio), "b2IsValidFloat( dampingRatio )", "b2WheelJoint_SetSpringDampingRatio")) {
 		return;
 	}
@@ -74,13 +74,13 @@ export unsafe function b2WheelJoint_SetSpringDampingRatio(jointId: b2JointId, da
 	joint.dampingRatio = dampingRatio;
 }
 
-export unsafe function b2WheelJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
+export function b2WheelJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.dampingRatio;
 }
 
-export unsafe function b2WheelJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
+export function b2WheelJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	if (joint.enableLimit != enableLimit) {
@@ -90,25 +90,25 @@ export unsafe function b2WheelJoint_EnableLimit(jointId: b2JointId, enableLimit:
 	}
 }
 
-export unsafe function b2WheelJoint_IsLimitEnabled(jointId: b2JointId): bool {
+export function b2WheelJoint_IsLimitEnabled(jointId: b2JointId): bool {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableLimit;
 }
 
-export unsafe function b2WheelJoint_GetLowerLimit(jointId: b2JointId): f32 {
+export function b2WheelJoint_GetLowerLimit(jointId: b2JointId): f32 {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.lowerTranslation;
 }
 
-export unsafe function b2WheelJoint_GetUpperLimit(jointId: b2JointId): f32 {
+export function b2WheelJoint_GetUpperLimit(jointId: b2JointId): f32 {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.upperTranslation;
 }
 
-export unsafe function b2WheelJoint_SetLimits(jointId: b2JointId, lower: f32, upper: f32): void {
+export function b2WheelJoint_SetLimits(jointId: b2JointId, lower: f32, upper: f32): void {
 	const fn = "b2WheelJoint_SetLimits";
 	if (!b2CheckJointInput(b2IsValidFloat(lower), "b2IsValidFloat( lower )", fn)) return;
 	if (!b2CheckJointInput(b2IsValidFloat(upper), "b2IsValidFloat( upper )", fn)) return;
@@ -121,7 +121,7 @@ export unsafe function b2WheelJoint_SetLimits(jointId: b2JointId, lower: f32, up
 	joint.upperTranslation = b2MaxFloat(lower, upper);
 }
 
-export unsafe function b2WheelJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
+export function b2WheelJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	if (joint.enableMotor != enableMotor) {
@@ -130,13 +130,13 @@ export unsafe function b2WheelJoint_EnableMotor(jointId: b2JointId, enableMotor:
 	}
 }
 
-export unsafe function b2WheelJoint_IsMotorEnabled(jointId: b2JointId): bool {
+export function b2WheelJoint_IsMotorEnabled(jointId: b2JointId): bool {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableMotor;
 }
 
-export unsafe function b2WheelJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
+export function b2WheelJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(motorSpeed), "b2IsValidFloat( motorSpeed )", "b2WheelJoint_SetTargetMotorSpeed")) {
 		return;
 	}
@@ -146,20 +146,20 @@ export unsafe function b2WheelJoint_SetTargetMotorSpeed(jointId: b2JointId, moto
 	joint.motorSpeed = motorSpeed;
 }
 
-export unsafe function b2WheelJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
+export function b2WheelJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.motorSpeed;
 }
 
-export unsafe function b2WheelJoint_GetCurrentMotorTorque(jointId: b2JointId): f32 {
+export function b2WheelJoint_GetCurrentMotorTorque(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return world.inv_h * joint.motorImpulse;
 }
 
-export unsafe function b2WheelJoint_SetMaxMotorTorque(jointId: b2JointId, torque: f32): void {
+export function b2WheelJoint_SetMaxMotorTorque(jointId: b2JointId, torque: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(torque), "b2IsValidFloat( torque )", "b2WheelJoint_SetMaxMotorTorque")) return;
 
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
@@ -167,7 +167,7 @@ export unsafe function b2WheelJoint_SetMaxMotorTorque(jointId: b2JointId, torque
 	joint.maxMotorTorque = torque;
 }
 
-export unsafe function b2WheelJoint_GetMaxMotorTorque(jointId: b2JointId): f32 {
+export function b2WheelJoint_GetMaxMotorTorque(jointId: b2JointId): f32 {
 	let joints = b2WheelJointAt(b2GetJointSimAddressCheckType(jointId, b2_wheelJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxMotorTorque;
@@ -302,7 +302,7 @@ export function b2PrepareWheelJoint(baseAddress: usize, context: b2StepContext):
 }
 
 @noinline
-export unsafe function b2WarmStartWheelJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2WarmStartWheelJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_wheelJoint);
@@ -349,7 +349,7 @@ export unsafe function b2WarmStartWheelJoint(baseAddress: usize, context: b2Step
 }
 
 @noinline
-export unsafe function b2SolveWheelJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
+export function b2SolveWheelJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_wheelJoint);

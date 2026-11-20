@@ -42,7 +42,7 @@ import {
 	b2WriteStateVelocity,
 } from "./joint";
 
-export unsafe function b2MotorJoint_SetLinearVelocity(jointId: b2JointId, velocity: b2Vec2): void {
+export function b2MotorJoint_SetLinearVelocity(jointId: b2JointId, velocity: b2Vec2): void {
 	if (!b2CheckJointInput(b2IsValidVec2(velocity), "b2IsValidVec2( velocity )", "b2MotorJoint_SetLinearVelocity")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -50,13 +50,13 @@ export unsafe function b2MotorJoint_SetLinearVelocity(jointId: b2JointId, veloci
 	joint.linearVelocity = velocity;
 }
 
-export unsafe function b2MotorJoint_GetLinearVelocity(jointId: b2JointId): b2Vec2 {
+export function b2MotorJoint_GetLinearVelocity(jointId: b2JointId): b2Vec2 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.linearVelocity;
 }
 
-export unsafe function b2MotorJoint_SetAngularVelocity(jointId: b2JointId, velocity: f32): void {
+export function b2MotorJoint_SetAngularVelocity(jointId: b2JointId, velocity: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(velocity), "b2IsValidFloat( velocity )", "b2MotorJoint_SetAngularVelocity")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -64,13 +64,13 @@ export unsafe function b2MotorJoint_SetAngularVelocity(jointId: b2JointId, veloc
 	joint.angularVelocity = velocity;
 }
 
-export unsafe function b2MotorJoint_GetAngularVelocity(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetAngularVelocity(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.angularVelocity;
 }
 
-export unsafe function b2MotorJoint_SetMaxVelocityTorque(jointId: b2JointId, maxTorque: f32): void {
+export function b2MotorJoint_SetMaxVelocityTorque(jointId: b2JointId, maxTorque: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxTorque), "b2IsValidFloat( maxTorque )", "b2MotorJoint_SetMaxVelocityTorque")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -78,13 +78,13 @@ export unsafe function b2MotorJoint_SetMaxVelocityTorque(jointId: b2JointId, max
 	joint.maxVelocityTorque = maxTorque;
 }
 
-export unsafe function b2MotorJoint_GetMaxVelocityTorque(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetMaxVelocityTorque(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxVelocityTorque;
 }
 
-export unsafe function b2MotorJoint_SetMaxVelocityForce(jointId: b2JointId, maxForce: f32): void {
+export function b2MotorJoint_SetMaxVelocityForce(jointId: b2JointId, maxForce: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxForce), "b2IsValidFloat( maxForce )", "b2MotorJoint_SetMaxVelocityForce")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -92,13 +92,13 @@ export unsafe function b2MotorJoint_SetMaxVelocityForce(jointId: b2JointId, maxF
 	joint.maxVelocityForce = maxForce;
 }
 
-export unsafe function b2MotorJoint_GetMaxVelocityForce(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetMaxVelocityForce(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxVelocityForce;
 }
 
-export unsafe function b2MotorJoint_SetLinearHertz(jointId: b2JointId, hertz: f32): void {
+export function b2MotorJoint_SetLinearHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2MotorJoint_SetLinearHertz")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -106,13 +106,13 @@ export unsafe function b2MotorJoint_SetLinearHertz(jointId: b2JointId, hertz: f3
 	joint.linearHertz = hertz;
 }
 
-export unsafe function b2MotorJoint_GetLinearHertz(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetLinearHertz(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.linearHertz;
 }
 
-export unsafe function b2MotorJoint_SetLinearDampingRatio(jointId: b2JointId, damping: f32): void {
+export function b2MotorJoint_SetLinearDampingRatio(jointId: b2JointId, damping: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(damping), "b2IsValidFloat( damping )", "b2MotorJoint_SetLinearDampingRatio")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -120,13 +120,13 @@ export unsafe function b2MotorJoint_SetLinearDampingRatio(jointId: b2JointId, da
 	joint.linearDampingRatio = damping;
 }
 
-export unsafe function b2MotorJoint_GetLinearDampingRatio(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetLinearDampingRatio(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.linearDampingRatio;
 }
 
-export unsafe function b2MotorJoint_SetAngularHertz(jointId: b2JointId, hertz: f32): void {
+export function b2MotorJoint_SetAngularHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2MotorJoint_SetAngularHertz")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -134,13 +134,13 @@ export unsafe function b2MotorJoint_SetAngularHertz(jointId: b2JointId, hertz: f
 	joint.angularHertz = hertz;
 }
 
-export unsafe function b2MotorJoint_GetAngularHertz(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetAngularHertz(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.angularHertz;
 }
 
-export unsafe function b2MotorJoint_SetAngularDampingRatio(jointId: b2JointId, damping: f32): void {
+export function b2MotorJoint_SetAngularDampingRatio(jointId: b2JointId, damping: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(damping), "b2IsValidFloat( damping )", "b2MotorJoint_SetAngularDampingRatio")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -148,13 +148,13 @@ export unsafe function b2MotorJoint_SetAngularDampingRatio(jointId: b2JointId, d
 	joint.angularDampingRatio = damping;
 }
 
-export unsafe function b2MotorJoint_GetAngularDampingRatio(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetAngularDampingRatio(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.angularDampingRatio;
 }
 
-export unsafe function b2MotorJoint_SetMaxSpringForce(jointId: b2JointId, maxForce: f32): void {
+export function b2MotorJoint_SetMaxSpringForce(jointId: b2JointId, maxForce: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxForce), "b2IsValidFloat( maxForce )", "b2MotorJoint_SetMaxSpringForce")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -162,13 +162,13 @@ export unsafe function b2MotorJoint_SetMaxSpringForce(jointId: b2JointId, maxFor
 	joint.maxSpringForce = b2MaxFloat(0.0, maxForce);
 }
 
-export unsafe function b2MotorJoint_GetMaxSpringForce(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetMaxSpringForce(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxSpringForce;
 }
 
-export unsafe function b2MotorJoint_SetMaxSpringTorque(jointId: b2JointId, maxTorque: f32): void {
+export function b2MotorJoint_SetMaxSpringTorque(jointId: b2JointId, maxTorque: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(maxTorque), "b2IsValidFloat( maxTorque )", "b2MotorJoint_SetMaxSpringTorque")) return;
 
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
@@ -176,7 +176,7 @@ export unsafe function b2MotorJoint_SetMaxSpringTorque(jointId: b2JointId, maxTo
 	joint.maxSpringTorque = b2MaxFloat(0.0, maxTorque);
 }
 
-export unsafe function b2MotorJoint_GetMaxSpringTorque(jointId: b2JointId): f32 {
+export function b2MotorJoint_GetMaxSpringTorque(jointId: b2JointId): f32 {
 	let joints = b2MotorJointAt(b2GetJointSimAddressCheckType(jointId, b2_motorJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxSpringTorque;
@@ -290,7 +290,7 @@ export function b2PrepareMotorJoint(baseAddress: usize, context: b2StepContext):
 }
 
 @noinline
-export unsafe function b2WarmStartMotorJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2WarmStartMotorJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_motorJoint);
@@ -333,7 +333,7 @@ export unsafe function b2WarmStartMotorJoint(baseAddress: usize, context: b2Step
 }
 
 @noinline
-export unsafe function b2SolveMotorJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2SolveMotorJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_motorJoint);

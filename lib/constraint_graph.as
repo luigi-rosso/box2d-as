@@ -144,7 +144,7 @@ function b2AssignJointColor(graph: b2ConstraintGraph, bodyIdA: i32, bodyIdB: i32
 
 // Contacts are always created as non-touching. They get moved into the constraint
 // graph once they are found to be touching.
-export unsafe function b2AddContactToGraph(world: b2World, contactSim: ref b2ContactSim, contactId: i32): void {
+export function b2AddContactToGraph(world: b2World, contactSim: ref b2ContactSim, contactId: i32): void {
 	if (B2_ASSERT_ENABLED) {
 		B2_ASSERT(contactSim.manifold.pointCount > 0);
 		B2_ASSERT((contactSim.simFlags & b2_simTouchingFlag) != 0);

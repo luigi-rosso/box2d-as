@@ -934,7 +934,7 @@ export function b2Chain_GetSurfaceMaterial(chainId: b2ChainId, segmentIndex: i32
 	return world.shapes[shapeId].material;
 }
 
-export unsafe function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform): b2AABB {
+export function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform): b2AABB {
 	let shapes = b2ArrayView(world.shapes);
 	switch (shapes[shapeId].type) {
 		case b2_capsuleShape:
@@ -958,7 +958,7 @@ export unsafe function b2ComputeShapeAABB(world: b2World, shapeId: i32, xf: b2Wo
 // Conservative world AABB for a shape, inflated by extra margin. In large world mode this is
 // computed in double and rounded outward so the inflation is not lost far from the origin.
 @inline
-export unsafe function b2ComputeFatShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform, extra: f32): b2AABB {
+export function b2ComputeFatShapeAABB(world: b2World, shapeId: i32, xf: b2WorldTransform, extra: f32): b2AABB {
 	let shapes = b2ArrayView(world.shapes);
 	switch (shapes[shapeId].type) {
 		case b2_capsuleShape:

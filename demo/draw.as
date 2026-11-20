@@ -203,7 +203,7 @@ class Batch {
 		this.close();
 	}
 
-	unsafe build(): bool {
+	build(): bool {
 		if (this.verbCount == 0) {
 			return false;
 		}
@@ -385,7 +385,7 @@ export class WorldDraw {
 	}
 
 	// The joints this body is body A of, so each joint is drawn once
-	private unsafe readJoints(view: BodyView, id: b2BodyId, jointCount: i32): void {
+	private readJoints(view: BodyView, id: b2BodyId, jointCount: i32): void {
 		if (this.jointIds.length < jointCount) {
 			this.jointIds = new StaticArray<b2JointId>(2 * jointCount);
 		}
@@ -432,7 +432,7 @@ export class WorldDraw {
 		}
 	}
 
-	unsafe draw(renderer: Renderer, camera: Camera, bodies: Array<b2BodyId>, count: i32): void {
+	draw(renderer: Renderer, camera: Camera, bodies: Array<b2BodyId>, count: i32): void {
 		for (let i = 0; i < KIND_COUNT; i++) {
 			this.fills[i].clear();
 		}
@@ -564,7 +564,7 @@ export class WorldDraw {
 		this.strokeBatch(renderer, this.joints, INK_JOINT);
 	}
 
-	private unsafe strokeBatch(renderer: Renderer, batch: Batch, color: Color): void {
+	private strokeBatch(renderer: Renderer, batch: Batch, color: Color): void {
 		if (batch.build()) {
 			this.stroke.color = color;
 			renderer.drawPath(batch.path, this.stroke);

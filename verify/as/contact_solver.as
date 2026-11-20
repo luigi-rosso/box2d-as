@@ -54,7 +54,7 @@ const wideCounts = new StaticArray<i32>(COLOR_COUNT);
 let wideTotal = 0;
 let overflowCount = 0;
 
-unsafe function words(p: usize, byteCount: usize): void {
+function words(p: usize, byteCount: usize): void {
 	for (let i: usize = 0; i < byteCount / 4; ++i) {
 		vf32(load<f32>(p + 4 * i));
 	}
@@ -164,7 +164,7 @@ function dumpSim(c: b2ContactSim): void {
 	}
 }
 
-unsafe function dump(phase: string): void {
+function dump(phase: string): void {
 	vtag(phase);
 	vi32(ctx.anyRestitution.value);
 	vbool(taskContext.hasHitEvents);
@@ -244,7 +244,7 @@ export function begin(): void {
 	vseed(0x5eed2d);
 }
 
-export unsafe function scenario(): void {
+export function scenario(): void {
 	let stateCount = vrandint(4, MAX_STATES + 1);
 	states.length = 0;
 	for (let i = 0; i < stateCount; ++i) {

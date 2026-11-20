@@ -40,7 +40,7 @@ export function b2Array_Append<A, S>(a: A, src: S, n: i32): void {
 
 // Remove an element by swapping with the last element. If the index is the last element it returns
 // B2_NULL_INDEX, otherwise it returns the index of the last element (which is now out of bounds).
-export unsafe function b2Array_RemoveSwap<A>(a: A, index: i32): i32 {
+export function b2Array_RemoveSwap<A>(a: A, index: i32): i32 {
 	if (B2_ASSERT_ENABLED) B2_ASSERT(0 <= index && index < a.length);
 
 	let count = a.length - 1;

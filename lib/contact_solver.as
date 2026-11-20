@@ -239,7 +239,7 @@ const CS_POINT1 = CS_MANIFOLD + M_POINTS + sizeof<b2ManifoldPoint>();
 
 // C's state pointers: b2StateAddress gives b2_identityStates for a static body, which has no dynamic flag and so is
 // never written. Indices come from the constraint the overflow prepare wrote, below the awake body count.
-@inline unsafe function b2StoreStateVelocity(state: usize, v: b2Vec2, w: f32): void {
+@inline function b2StoreStateVelocity(state: usize, v: b2Vec2, w: f32): void {
 	if ((load<u32>(state + BS_FLAGS) & b2_dynamicFlag) != 0) {
 		store<f32>(state + BS_V, v.x);
 		store<f32>(state + BS_V + 4, v.y);
@@ -247,7 +247,7 @@ const CS_POINT1 = CS_MANIFOLD + M_POINTS + sizeof<b2ManifoldPoint>();
 	}
 }
 
-export unsafe function b2PrepareContacts_Overflow(context: b2StepContext): void {
+export function b2PrepareContacts_Overflow(context: b2StepContext): void {
 	let world = context.world;
 	let graph = context.graph;
 	let color = graph.colors[B2_OVERFLOW_INDEX];
@@ -381,7 +381,7 @@ export unsafe function b2PrepareContacts_Overflow(context: b2StepContext): void 
 	}
 }
 
-export unsafe function b2WarmStartContacts_Overflow(context: b2StepContext): void {
+export function b2WarmStartContacts_Overflow(context: b2StepContext): void {
 	let graph = context.graph;
 	let color = graph.colors[B2_OVERFLOW_INDEX];
 	let constraints = color.overflowConstraints;
@@ -443,7 +443,7 @@ export unsafe function b2WarmStartContacts_Overflow(context: b2StepContext): voi
 }
 
 // Solve the non-penetration constraints with the soft bias. No friction and no restitution.
-export unsafe function b2PushContacts_Overflow(context: b2StepContext): void {
+export function b2PushContacts_Overflow(context: b2StepContext): void {
 	let graph = context.graph;
 	let color = graph.colors[B2_OVERFLOW_INDEX];
 	let constraints = color.overflowConstraints;
@@ -557,7 +557,7 @@ export unsafe function b2PushContacts_Overflow(context: b2StepContext): void {
 }
 
 // Solve contacts: normal, friction and rolling resistance.
-export unsafe function b2SolveContacts_Overflow(context: b2StepContext): void {
+export function b2SolveContacts_Overflow(context: b2StepContext): void {
 	let graph = context.graph;
 	let color = graph.colors[B2_OVERFLOW_INDEX];
 	let constraints = color.overflowConstraints;
@@ -717,7 +717,7 @@ export unsafe function b2SolveContacts_Overflow(context: b2StepContext): void {
 	}
 }
 
-export unsafe function b2ApplyRestitution_Overflow(context: b2StepContext): void {
+export function b2ApplyRestitution_Overflow(context: b2StepContext): void {
 	let graph = context.graph;
 	let color = graph.colors[B2_OVERFLOW_INDEX];
 	let constraints = color.overflowConstraints;
@@ -814,7 +814,7 @@ export unsafe function b2ApplyRestitution_Overflow(context: b2StepContext): void
 	}
 }
 
-export unsafe function b2StoreImpulses_Overflow(context: b2StepContext): void {
+export function b2StoreImpulses_Overflow(context: b2StepContext): void {
 	let world = context.world;
 	let graph = context.graph;
 	let color = graph.colors[B2_OVERFLOW_INDEX];
@@ -900,7 +900,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 
 // A lane's body state from its base 1 index, b2_identityStates for 0. Indices come from the prepare, which takes
 // them from the contacts' encoded awake indices, so they are below the awake body count.
-@inline unsafe function b2LaneState(states: usize, identity: usize, indices: usize, lane: i32): usize {
+@inline function b2LaneState(states: usize, identity: usize, indices: usize, lane: i32): usize {
 	let index = load<i32>(indices + <usize>lane * 4);
 	return index == 0 ? identity : states + <usize>(index - 1) * sizeof<b2BodyState>();
 }
@@ -912,7 +912,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 
 // One 16 byte row of each lane's state or manifold point transposed into lanes, as C's SSE2 gather. An f32 kernel
 // reads its own lane's four floats.
-@inline unsafe function b2GatherRowL<T>(p1: usize, p2: usize, p3: usize, p4: usize, offset: usize): b2ColumnsL<T> {
+@inline function b2GatherRowL<T>(p1: usize, p2: usize, p3: usize, p4: usize, offset: usize): b2ColumnsL<T> {
 	if (isFloat<T>()) {
 		let c: b2ColumnsL<T>;
 		c.c0 = load<f32>(p1 + offset);
@@ -927,7 +927,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 
 // This writes only the velocities back to the solver bodies. indices points at the lane's body index. The v128
 // path stores each dynamic lane's first row [vx vy w flags] with the flags it gathered, as C's SSE2 scatter.
-@inline unsafe function b2ScatterBodiesL<T>(states: usize, indices: usize, vX: T, vY: T, w: T, flags: T): void {
+@inline function b2ScatterBodiesL<T>(states: usize, indices: usize, vX: T, vY: T, w: T, flags: T): void {
 	if (isFloat<T>()) {
 		// zero means null
 		let index = load<i32>(indices);
@@ -969,7 +969,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 }
 
 // b2SoftMaskW over the lane's body indices
-@inline unsafe function b2SoftMaskL<T>(indexA: usize, indexB: usize): T {
+@inline function b2SoftMaskL<T>(indexA: usize, indexB: usize): T {
 	if (isFloat<T>()) {
 		return load<i32>(indexA) == 0 || load<i32>(indexB) == 0 ? <f32>1.0 : <f32>0.0;
 	} else {
@@ -979,7 +979,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 
 // The wide constraints of a color: they start at the color's wideConstraintStart in the step's wide array, which
 // b2Solve sized to cover every color's wideConstraintCount.
-@inline unsafe function b2ColorConstraints(context: b2StepContext, colorIndex: i32): usize {
+@inline function b2ColorConstraints(context: b2StepContext, colorIndex: i32): usize {
 	let color = context.graph.colors[colorIndex];
 	return changetype<usize>(context.wideContactConstraints) + <usize>color.wideConstraintStart * sizeof<b2ContactConstraintWide>();
 }
@@ -987,7 +987,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 // Prepare one wide constraint. contacts holds the four lanes' contact sim addresses, the zero sim for empty lanes,
 // and the lanes' body indices are already in place. An f32 kernel reads only its lane: l0 to l3 all name it.
 // hitEvents and haveRestitution are C's decisions across the lanes.
-@inline unsafe function b2PrepareConstraintL<T>(
+@inline function b2PrepareConstraintL<T>(
 	cw0: usize,
 	cl0: usize,
 	cl1: usize,
@@ -1195,7 +1195,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 }
 
 // Each lane's normal velocity into its contact's manifold point when the manifold has more than minPoints points
-@inline unsafe function b2StoreNormalVelocityL<T>(c0: usize, c1: usize, c2: usize, c3: usize, point: usize, minPoints: i32, vn: T): void {
+@inline function b2StoreNormalVelocityL<T>(c0: usize, c1: usize, c2: usize, c3: usize, point: usize, minPoints: i32, vn: T): void {
 	if (load<i32>(c0 + CS_POINTCOUNT) > minPoints) {
 		store<f32>(c0 + point + MP_NORMALVELOCITY, b2LaneL(vn, 0));
 	}
@@ -1219,7 +1219,7 @@ export function b2GetWideContactConstraintByteCount(simdWidth: i32): i32 {
 // Potential optimization: for SSE2 load 4 manifold points and transpose, like the body gather/scatter.
 // I would need to reorder the manifold point so that constraint data comes first.
 @noinline
-unsafe function b2PrepareContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
+function b2PrepareContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let world = context.world;
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
@@ -1306,7 +1306,7 @@ unsafe function b2PrepareContactsL<T>(block: b2SolverBlock, context: b2StepConte
 }
 
 @noinline
-unsafe function b2WarmStartContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
+function b2WarmStartContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
 	let constraints = b2ColorConstraints(context, block.colorIndex);
@@ -1398,7 +1398,7 @@ unsafe function b2WarmStartContactsL<T>(block: b2SolverBlock, context: b2StepCon
 }
 
 // The separation of a point from its fixed anchors and the bodies' delta rotations, for push, solve and restitution
-@inline unsafe function b2SeparationL<T>(
+@inline function b2SeparationL<T>(
 	c: usize,
 	anchorAX: usize,
 	anchorBX: usize,
@@ -1431,7 +1431,7 @@ unsafe function b2WarmStartContactsL<T>(block: b2SolverBlock, context: b2StepCon
 }
 
 @noinline
-unsafe function b2PushContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
+function b2PushContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
 	let constraints = b2ColorConstraints(context, block.colorIndex);
@@ -1576,7 +1576,7 @@ unsafe function b2PushContactsL<T>(block: b2SolverBlock, context: b2StepContext)
 
 // Solve the normal constraint, friction, and rolling resistance.
 @noinline
-unsafe function b2SolveContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
+function b2SolveContactsL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
 	let constraints = b2ColorConstraints(context, block.colorIndex);
@@ -1773,7 +1773,7 @@ unsafe function b2SolveContactsL<T>(block: b2SolverBlock, context: b2StepContext
 
 // One restitution point: updates the point's impulses in the constraint and returns the impulse, for the caller to
 // apply. Per component so it inlines.
-@inline unsafe function b2RestitutionImpulseL<T>(
+@inline function b2RestitutionImpulseL<T>(
 	c: usize,
 	normalImpulseField: usize,
 	totalNormalImpulseField: usize,
@@ -1816,7 +1816,7 @@ unsafe function b2SolveContactsL<T>(block: b2SolverBlock, context: b2StepContext
 }
 
 @noinline
-unsafe function b2ApplyRestitutionL<T>(block: b2SolverBlock, context: b2StepContext): void {
+function b2ApplyRestitutionL<T>(block: b2SolverBlock, context: b2StepContext): void {
 	let states = b2ArrayData(context.states);
 	let identity = changetype<usize>(b2_identityStates);
 	let constraints = b2ColorConstraints(context, block.colorIndex);
@@ -1975,7 +1975,7 @@ unsafe function b2ApplyRestitutionL<T>(block: b2SolverBlock, context: b2StepCont
 // I could store the manifold pointer in the b2ContactConstraintWide to simplify
 // this. But it is important to keep the constraint small.
 @noinline
-export unsafe function b2StoreImpulses_WideW4(block: b2SolverBlock, context: b2StepContext, workerIndex: i32): void {
+export function b2StoreImpulses_WideW4(block: b2SolverBlock, context: b2StepContext, workerIndex: i32): void {
 	let world = context.world;
 	let spans = context.contactPrepareSpans;
 	let wideBase = changetype<usize>(context.wideContactConstraints);

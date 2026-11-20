@@ -46,6 +46,6 @@ export function recordLength(): i32 {
 }
 
 // Valid until the next frame boundary, which may move the buffer
-export unsafe function recordPointer(): usize {
+export function recordPointer(): usize {
 	return Record_Pointer();
 }

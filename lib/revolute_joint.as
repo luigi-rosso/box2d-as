@@ -58,7 +58,7 @@ import {
 // J = [0 0 -1 0 0 1]
 // K = invIA + invIB
 
-export unsafe function b2RevoluteJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
+export function b2RevoluteJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableSpring != joint.enableSpring) {
@@ -67,13 +67,13 @@ export unsafe function b2RevoluteJoint_EnableSpring(jointId: b2JointId, enableSp
 	}
 }
 
-export unsafe function b2RevoluteJoint_IsSpringEnabled(jointId: b2JointId): bool {
+export function b2RevoluteJoint_IsSpringEnabled(jointId: b2JointId): bool {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableSpring;
 }
 
-export unsafe function b2RevoluteJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
+export function b2RevoluteJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2RevoluteJoint_SetSpringHertz")) return;
 
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
@@ -81,13 +81,13 @@ export unsafe function b2RevoluteJoint_SetSpringHertz(jointId: b2JointId, hertz:
 	joint.hertz = hertz;
 }
 
-export unsafe function b2RevoluteJoint_GetSpringHertz(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetSpringHertz(jointId: b2JointId): f32 {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.hertz;
 }
 
-export unsafe function b2RevoluteJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
+export function b2RevoluteJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(dampingRatio), "b2IsValidFloat( dampingRatio )", "b2RevoluteJoint_SetSpringDampingRatio")) {
 		return;
 	}
@@ -97,13 +97,13 @@ export unsafe function b2RevoluteJoint_SetSpringDampingRatio(jointId: b2JointId,
 	joint.dampingRatio = dampingRatio;
 }
 
-export unsafe function b2RevoluteJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.dampingRatio;
 }
 
-export unsafe function b2RevoluteJoint_SetTargetAngle(jointId: b2JointId, angle: f32): void {
+export function b2RevoluteJoint_SetTargetAngle(jointId: b2JointId, angle: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(angle), "b2IsValidFloat( angle )", "b2RevoluteJoint_SetTargetAngle")) return;
 
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
@@ -111,13 +111,13 @@ export unsafe function b2RevoluteJoint_SetTargetAngle(jointId: b2JointId, angle:
 	joint.targetAngle = angle;
 }
 
-export unsafe function b2RevoluteJoint_GetTargetAngle(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetTargetAngle(jointId: b2JointId): f32 {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.targetAngle;
 }
 
-export unsafe function b2RevoluteJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
+export function b2RevoluteJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableLimit != joint.enableLimit) {
@@ -127,25 +127,25 @@ export unsafe function b2RevoluteJoint_EnableLimit(jointId: b2JointId, enableLim
 	}
 }
 
-export unsafe function b2RevoluteJoint_IsLimitEnabled(jointId: b2JointId): bool {
+export function b2RevoluteJoint_IsLimitEnabled(jointId: b2JointId): bool {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableLimit;
 }
 
-export unsafe function b2RevoluteJoint_GetLowerLimit(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetLowerLimit(jointId: b2JointId): f32 {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.lowerAngle;
 }
 
-export unsafe function b2RevoluteJoint_GetUpperLimit(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetUpperLimit(jointId: b2JointId): f32 {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.upperAngle;
 }
 
-export unsafe function b2RevoluteJoint_SetLimits(jointId: b2JointId, lower: f32, upper: f32): void {
+export function b2RevoluteJoint_SetLimits(jointId: b2JointId, lower: f32, upper: f32): void {
 	const fn = "b2RevoluteJoint_SetLimits";
 	if (!b2CheckJointInput(b2IsValidFloat(lower), "b2IsValidFloat( lower )", fn)) return;
 	if (!b2CheckJointInput(b2IsValidFloat(upper), "b2IsValidFloat( upper )", fn)) return;
@@ -159,7 +159,7 @@ export unsafe function b2RevoluteJoint_SetLimits(jointId: b2JointId, lower: f32,
 	joint.upperAngle = b2ClampFloat(upperAngle, -0.99 * B2_PI, 0.99 * B2_PI);
 }
 
-export unsafe function b2RevoluteJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
+export function b2RevoluteJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableMotor != joint.enableMotor) {
@@ -168,13 +168,13 @@ export unsafe function b2RevoluteJoint_EnableMotor(jointId: b2JointId, enableMot
 	}
 }
 
-export unsafe function b2RevoluteJoint_IsMotorEnabled(jointId: b2JointId): bool {
+export function b2RevoluteJoint_IsMotorEnabled(jointId: b2JointId): bool {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableMotor;
 }
 
-export unsafe function b2RevoluteJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
+export function b2RevoluteJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(motorSpeed), "b2IsValidFloat( motorSpeed )", "b2RevoluteJoint_SetTargetMotorSpeed")) {
 		return;
 	}
@@ -184,13 +184,13 @@ export unsafe function b2RevoluteJoint_SetTargetMotorSpeed(jointId: b2JointId, m
 	joint.motorSpeed = motorSpeed;
 }
 
-export unsafe function b2RevoluteJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.motorSpeed;
 }
 
-export unsafe function b2RevoluteJoint_SetMaxMotorTorque(jointId: b2JointId, torque: f32): void {
+export function b2RevoluteJoint_SetMaxMotorTorque(jointId: b2JointId, torque: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(torque), "b2IsValidFloat( torque )", "b2RevoluteJoint_SetMaxMotorTorque")) return;
 
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
@@ -198,13 +198,13 @@ export unsafe function b2RevoluteJoint_SetMaxMotorTorque(jointId: b2JointId, tor
 	joint.maxMotorTorque = torque;
 }
 
-export unsafe function b2RevoluteJoint_GetMaxMotorTorque(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetMaxMotorTorque(jointId: b2JointId): f32 {
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxMotorTorque;
 }
 
-export unsafe function b2RevoluteJoint_GetCurrentAngle(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetCurrentAngle(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let sims = b2GetJointSimViewCheckType(jointId, b2_revoluteJoint);
 	ref jointSim = sims[b2GetJointLocalIndex(jointId)];
@@ -215,7 +215,7 @@ export unsafe function b2RevoluteJoint_GetCurrentAngle(jointId: b2JointId): f32 
 	return angle;
 }
 
-export unsafe function b2RevoluteJoint_GetCurrentSpeed(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetCurrentSpeed(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let sims = b2GetJointSimViewCheckType(jointId, b2_revoluteJoint);
 	ref base = sims[b2GetJointLocalIndex(jointId)];
@@ -230,7 +230,7 @@ export unsafe function b2RevoluteJoint_GetCurrentSpeed(jointId: b2JointId): f32 
 	return wB - wA;
 }
 
-export unsafe function b2RevoluteJoint_GetCurrentMotorTorque(jointId: b2JointId): f32 {
+export function b2RevoluteJoint_GetCurrentMotorTorque(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joints = b2RevoluteJointAt(b2GetJointSimAddressCheckType(jointId, b2_revoluteJoint));
 	ref joint = unchecked(joints[0]);
@@ -326,7 +326,7 @@ export function b2PrepareRevoluteJoint(baseAddress: usize, context: b2StepContex
 }
 
 @noinline
-export unsafe function b2WarmStartRevoluteJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2WarmStartRevoluteJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_revoluteJoint);
@@ -367,7 +367,7 @@ export unsafe function b2WarmStartRevoluteJoint(baseAddress: usize, context: b2S
 }
 
 @noinline
-export unsafe function b2SolveRevoluteJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
+export function b2SolveRevoluteJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_revoluteJoint);

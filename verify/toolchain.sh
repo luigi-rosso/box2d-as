@@ -1,4 +1,4 @@
-# Sourced by the verify and bench scripts. RIVE_TOOLCHAIN names a rive checkout at master 4a861ff147 or later with release
+# Sourced by the verify and bench scripts. RIVE_TOOLCHAIN names a rive checkout at master 57e98c9a11 or later with release
 # builds of rasc and rive-cli, else the first of rive-box2d-master and rive-master that has rasc. RASC, AS_STD, RIVE
 # and RIVE_WAMRC override each tool; wamrc defaults to the one built from the checkout's patched WAMR into the CLI's
 # out directory.

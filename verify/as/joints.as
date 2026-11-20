@@ -92,7 +92,7 @@ function emitStates(tag: string): void {
 	}
 }
 
-unsafe function emitSims(tag: string): void {
+function emitSims(tag: string): void {
 	let world = b2GetWorldFromId(worldId);
 	for (let c = 0; c < B2_GRAPH_COLOR_COUNT; ++c) {
 		let sims = world.constraintGraph.colors[c].jointSims;
@@ -119,7 +119,7 @@ function addJoint(id: b2JointId): void {
 	joints[jointCount++] = id;
 }
 
-unsafe function build(): void {
+function build(): void {
 	let wd = b2DefaultWorldDef();
 	worldId = b2CreateWorld(wd);
 
@@ -314,7 +314,7 @@ function block(startIndex: i32, count: i32, colorIndex: i32): b2SolverBlock {
 	return b;
 }
 
-unsafe function stepJoints(warmStarting: bool): void {
+function stepJoints(warmStarting: bool): void {
 	let world = b2GetWorldFromId(worldId);
 	let states = world.solverSets[b2_awakeSet].bodyStates;
 
@@ -403,7 +403,7 @@ unsafe function stepJoints(warmStarting: bool): void {
 	vend();
 }
 
-unsafe function emitApi(): void {
+function emitApi(): void {
 	for (let i = 0; i < jointCount; ++i)
 	{
 		let id = joints[i];
@@ -530,7 +530,7 @@ unsafe function emitApi(): void {
 		vend();
 	}}
 
-unsafe function setters(): void {
+function setters(): void {
 	b2DistanceJoint_SetRestLength(joints[0], 1.7);
 	b2DistanceJoint_SetLimits(joints[1], 1.3, 0.8);
 	b2DistanceJoint_SetSpringForceRange(joints[1], -30.0, 20.0);
@@ -600,7 +600,7 @@ unsafe function setters(): void {
 
 function silentLog(message: string): void {}
 
-export unsafe function run(): void {
+export function run(): void {
 	b2SetLogCallback(silentLog);
 	build();
 	emitApi();

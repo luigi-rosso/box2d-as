@@ -45,7 +45,7 @@ export class b2WorldPairFilter {
 		this.world = world;
 	}
 
-	unsafe shouldCreatePair(shapeIdA: i32, shapeIdB: i32): bool {
+	shouldCreatePair(shapeIdA: i32, shapeIdB: i32): bool {
 		let world = this.world;
 		let shapes = b2ArrayView(world.shapes);
 		ref shapeA = shapes[shapeIdA];

@@ -18,7 +18,7 @@ import {
 	b2WriteStateLinearVelocity,
 } from "./joint";
 
-export unsafe function b2MoverJoint_SetLinearVelocity(jointId: b2JointId, velocity: b2Vec2): void {
+export function b2MoverJoint_SetLinearVelocity(jointId: b2JointId, velocity: b2Vec2): void {
 	if (!b2CheckJointInput(b2IsValidVec2(velocity), "b2IsValidVec2( velocity )", "b2MoverJoint_SetLinearVelocity")) return;
 
 	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
@@ -26,13 +26,13 @@ export unsafe function b2MoverJoint_SetLinearVelocity(jointId: b2JointId, veloci
 	joint.linearVelocity = velocity;
 }
 
-export unsafe function b2MoverJoint_GetLinearVelocity(jointId: b2JointId): b2Vec2 {
+export function b2MoverJoint_GetLinearVelocity(jointId: b2JointId): b2Vec2 {
 	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.linearVelocity;
 }
 
-export unsafe function b2MoverJoint_SetMaxVelocityForce(jointId: b2JointId, maxForce: b2Vec2): void {
+export function b2MoverJoint_SetMaxVelocityForce(jointId: b2JointId, maxForce: b2Vec2): void {
 	if (!b2CheckJointInput(b2IsValidVec2(maxForce), "b2IsValidVec2( maxForce )", "b2MoverJoint_SetMaxVelocityForce")) return;
 
 	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
@@ -40,7 +40,7 @@ export unsafe function b2MoverJoint_SetMaxVelocityForce(jointId: b2JointId, maxF
 	joint.maxVelocityForce = maxForce;
 }
 
-export unsafe function b2MoverJoint_GetMaxVelocityForce(jointId: b2JointId): b2Vec2 {
+export function b2MoverJoint_GetMaxVelocityForce(jointId: b2JointId): b2Vec2 {
 	let joints = b2MoverJointAt(b2GetJointSimAddressCheckType(jointId, b2_moverJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxVelocityForce;
@@ -99,7 +99,7 @@ export function b2PrepareMoverJoint(baseAddress: usize, context: b2StepContext):
 }
 
 @noinline
-export unsafe function b2WarmStartMoverJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2WarmStartMoverJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_moverJoint);
@@ -126,7 +126,7 @@ export unsafe function b2WarmStartMoverJoint(baseAddress: usize, context: b2Step
 }
 
 @noinline
-export unsafe function b2SolveMoverJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2SolveMoverJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_moverJoint);

@@ -11,7 +11,7 @@ import { shapes } from "./shapes";
 import { threading } from "./threading";
 
 export class ExampleTests extends Tests {
-	override unsafe run(): void {
+	override run(): void {
 		test("hello world: the box comes to rest on the ground and sleeps", (expect) => {
 			let result = helloWorld();
 			expect.that(result.height).greaterThan(0.48);

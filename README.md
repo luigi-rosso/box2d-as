@@ -113,11 +113,13 @@ b2World_EnableParallel(worldId, b2_parallelAll); // from init or later, not from
   friction or restitution callback is set, pair finding when a custom filter is set, and the continuous sweeps (the
   rest of finalize stays parallel) when the world has sensors, a custom filter or a pre-continuous callback. Bullets,
   sensor overlaps and the island split always do. So callbacks run only on the main lane, in the serial step's order.
-- A part that traps ends the step with an error: on AOT a worker's in 7 to 37 ms and part 0's in 0.6 to 0.8 s
-  (`notes/threading.md` has the other tiers). A failed step leaves the world locked, as it does without
-  parallel calls.
-- It needs rive master at 4a861ff147 or later, where parallel calls landed; an older runtime traps on the first call.
-  A build that does not import `lib/parallel_step` is the serial port it was.
+- A part that traps ends the step with an error, within milliseconds when it traps in a solver stage, natively
+  and on a page (`notes/threading.md`). A failed step leaves the world locked, as it does without parallel calls.
+- Building it needs rasc and its std from rive master at 57e98c9a11 or later, where `Part.stopping()` landed; the
+  gates in `notes/threading.md` ran on that commit's toolchain. A runtime from before parallel calls landed
+  (4a861ff147) traps on the first call.
+  A build that does not import `lib/parallel_step` is the serial port it was, and needs rasc from rive#15863 on,
+  since the lib no longer marks its raw memory code `unsafe`.
 
 `notes/threading.md` has the design, what the port needed and the measurements.
 
@@ -172,7 +174,7 @@ exactness, with no tolerance.
 | `verify/threads.sh --large` | under rive-cli with the step on parallel calls at 1, 2, 4 and 8 parts and the default: every step's state hash and the hash of its whole trajectory record (events, counters, sleep flags, probes) against the native recording, and that every task ran on parts (the narrow phase where the run ends with contacts), with a solver call that got that many | 18 scenes, 90 runs |
 | `CALLBACKS=63 verify/threads.sh` | the same runs with a custom filter, pre-solve, pre-continuous, friction and restitution callback whose answers depend on how many calls came before, and about half the dynamic bodies bullets, against the serial port's run: the parallel step makes the same calls in the same order | 11 scenes, 55 runs |
 | `CALLBACKS="33 34 36 40 48" PARTS="4 8" verify/threads.sh shape_rain bullets` | each of those callbacks alone, where each is called: all at once would hide a task that forgot one of the callbacks that keep it off the parts | 2 scenes, 20 runs |
-| `verify/parts.sh` | on edited copies: part 0 runs no block, so the other parts must be able to run them all; a sync every 8 polls of a stage wait; a trap in a worker and in part 0, which must end the call. It does not hold speed | 2 scenes, 12 runs, and 2 trap runs |
+| `verify/parts.sh` | on edited copies: part 0 runs no block, so the other parts must be able to run them all; part 0 reads the stop flag at every poll of a stage wait; a trap in every worker and in part 0, which must end the call. It does not hold speed | 2 scenes, 12 runs, and 2 trap runs |
 | `bench/web/parallel.mjs` | the same check on a page in Chrome, WebKit and Firefox, over librive's threads build | 8 scenes, 40 runs a browser |
 
 The 18 scenes are pyramid, shape rain, chain car, joints, dynamic mover, churn (create, destroy and every body
@@ -307,8 +309,8 @@ Reproduce: `ROUNDS=3 bench/as/threads.sh`, on a quiet machine.
 | `bench/native`, `bench/as`, `bench/web` | native timings, rive-cli AOT and interpreter timings (`threads.sh` on parallel calls), V8 against C on wasm |
 | `notes/` | porting notes per module, the perf pass |
 
-Toolchain: release builds of rasc, its std and rive-cli from a rive master checkout at 4a861ff147 or later, where
-parallel calls landed (`verify/toolchain.sh` takes `RIVE_TOOLCHAIN`, else looks in `~/Projects/rive-box2d-master`, then
+Toolchain: release builds of rasc, its std and rive-cli from a rive master checkout at 57e98c9a11 or later, where
+`Part.stopping()` landed (`verify/toolchain.sh` takes `RIVE_TOOLCHAIN`, else looks in `~/Projects/rive-box2d-master`, then
 `~/Projects/rive-master`; `RASC`, `AS_STD`, `RIVE` and `RIVE_WAMRC` override each tool), and a wamrc for `--aot` built
 from the patched WAMR the CLI build downloads, at `packages/rive-cli/out/wamrc` in the checkout by default. A wamrc
 older than the checkout's patches runs slower or not at all.

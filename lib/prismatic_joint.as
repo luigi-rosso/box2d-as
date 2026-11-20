@@ -49,7 +49,7 @@ import {
 	b2WriteStateVelocity,
 } from "./joint";
 
-export unsafe function b2PrismaticJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
+export function b2PrismaticJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableSpring != joint.enableSpring) {
@@ -58,13 +58,13 @@ export unsafe function b2PrismaticJoint_EnableSpring(jointId: b2JointId, enableS
 	}
 }
 
-export unsafe function b2PrismaticJoint_IsSpringEnabled(jointId: b2JointId): bool {
+export function b2PrismaticJoint_IsSpringEnabled(jointId: b2JointId): bool {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableSpring;
 }
 
-export unsafe function b2PrismaticJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
+export function b2PrismaticJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2PrismaticJoint_SetSpringHertz")) return;
 
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
@@ -72,13 +72,13 @@ export unsafe function b2PrismaticJoint_SetSpringHertz(jointId: b2JointId, hertz
 	joint.hertz = hertz;
 }
 
-export unsafe function b2PrismaticJoint_GetSpringHertz(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetSpringHertz(jointId: b2JointId): f32 {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.hertz;
 }
 
-export unsafe function b2PrismaticJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
+export function b2PrismaticJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(dampingRatio), "b2IsValidFloat( dampingRatio )", "b2PrismaticJoint_SetSpringDampingRatio")) {
 		return;
 	}
@@ -88,13 +88,13 @@ export unsafe function b2PrismaticJoint_SetSpringDampingRatio(jointId: b2JointId
 	joint.dampingRatio = dampingRatio;
 }
 
-export unsafe function b2PrismaticJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.dampingRatio;
 }
 
-export unsafe function b2PrismaticJoint_SetTargetTranslation(jointId: b2JointId, translation: f32): void {
+export function b2PrismaticJoint_SetTargetTranslation(jointId: b2JointId, translation: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(translation), "b2IsValidFloat( translation )", "b2PrismaticJoint_SetTargetTranslation")) {
 		return;
 	}
@@ -104,13 +104,13 @@ export unsafe function b2PrismaticJoint_SetTargetTranslation(jointId: b2JointId,
 	joint.targetTranslation = translation;
 }
 
-export unsafe function b2PrismaticJoint_GetTargetTranslation(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetTargetTranslation(jointId: b2JointId): f32 {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.targetTranslation;
 }
 
-export unsafe function b2PrismaticJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
+export function b2PrismaticJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableLimit != joint.enableLimit) {
@@ -120,25 +120,25 @@ export unsafe function b2PrismaticJoint_EnableLimit(jointId: b2JointId, enableLi
 	}
 }
 
-export unsafe function b2PrismaticJoint_IsLimitEnabled(jointId: b2JointId): bool {
+export function b2PrismaticJoint_IsLimitEnabled(jointId: b2JointId): bool {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableLimit;
 }
 
-export unsafe function b2PrismaticJoint_GetLowerLimit(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetLowerLimit(jointId: b2JointId): f32 {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.lowerTranslation;
 }
 
-export unsafe function b2PrismaticJoint_GetUpperLimit(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetUpperLimit(jointId: b2JointId): f32 {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.upperTranslation;
 }
 
-export unsafe function b2PrismaticJoint_SetLimits(jointId: b2JointId, lower: f32, upper: f32): void {
+export function b2PrismaticJoint_SetLimits(jointId: b2JointId, lower: f32, upper: f32): void {
 	const fn = "b2PrismaticJoint_SetLimits";
 	if (!b2CheckJointInput(b2IsValidFloat(lower), "b2IsValidFloat( lower )", fn)) return;
 	if (!b2CheckJointInput(b2IsValidFloat(upper), "b2IsValidFloat( upper )", fn)) return;
@@ -151,7 +151,7 @@ export unsafe function b2PrismaticJoint_SetLimits(jointId: b2JointId, lower: f32
 	joint.upperTranslation = b2MaxFloat(lower, upper);
 }
 
-export unsafe function b2PrismaticJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
+export function b2PrismaticJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableMotor != joint.enableMotor) {
@@ -160,13 +160,13 @@ export unsafe function b2PrismaticJoint_EnableMotor(jointId: b2JointId, enableMo
 	}
 }
 
-export unsafe function b2PrismaticJoint_IsMotorEnabled(jointId: b2JointId): bool {
+export function b2PrismaticJoint_IsMotorEnabled(jointId: b2JointId): bool {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableMotor;
 }
 
-export unsafe function b2PrismaticJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
+export function b2PrismaticJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(motorSpeed), "b2IsValidFloat( motorSpeed )", "b2PrismaticJoint_SetTargetMotorSpeed")) {
 		return;
 	}
@@ -176,13 +176,13 @@ export unsafe function b2PrismaticJoint_SetTargetMotorSpeed(jointId: b2JointId, 
 	joint.motorSpeed = motorSpeed;
 }
 
-export unsafe function b2PrismaticJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.motorSpeed;
 }
 
-export unsafe function b2PrismaticJoint_GetCurrentMotorForce(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetCurrentMotorForce(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let sims = b2GetJointSimViewCheckType(jointId, b2_prismaticJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
@@ -193,7 +193,7 @@ export unsafe function b2PrismaticJoint_GetCurrentMotorForce(jointId: b2JointId)
 	return world.inv_h * basePrismatic.motorImpulse;
 }
 
-export unsafe function b2PrismaticJoint_SetMaxMotorForce(jointId: b2JointId, force: f32): void {
+export function b2PrismaticJoint_SetMaxMotorForce(jointId: b2JointId, force: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(force), "b2IsValidFloat( force )", "b2PrismaticJoint_SetMaxMotorForce")) return;
 
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
@@ -201,13 +201,13 @@ export unsafe function b2PrismaticJoint_SetMaxMotorForce(jointId: b2JointId, for
 	joint.maxMotorForce = force;
 }
 
-export unsafe function b2PrismaticJoint_GetMaxMotorForce(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetMaxMotorForce(jointId: b2JointId): f32 {
 	let joints = b2PrismaticJointAt(b2GetJointSimAddressCheckType(jointId, b2_prismaticJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxMotorForce;
 }
 
-export unsafe function b2PrismaticJoint_GetCurrentTranslation(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetCurrentTranslation(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let sims = b2GetJointSimViewCheckType(jointId, b2_prismaticJoint);
 	ref jointSim = sims[b2GetJointLocalIndex(jointId)];
@@ -225,7 +225,7 @@ export unsafe function b2PrismaticJoint_GetCurrentTranslation(jointId: b2JointId
 	return translation;
 }
 
-export unsafe function b2PrismaticJoint_GetCurrentSpeed(jointId: b2JointId): f32 {
+export function b2PrismaticJoint_GetCurrentSpeed(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let joint = b2GetJointFullId(world, jointId);
 	B2_ASSERT(world.joints[joint].type == b2_prismaticJoint);
@@ -398,7 +398,7 @@ export function b2PreparePrismaticJoint(baseAddress: usize, context: b2StepConte
 }
 
 @noinline
-export unsafe function b2WarmStartPrismaticJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2WarmStartPrismaticJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_prismaticJoint);
@@ -449,7 +449,7 @@ export unsafe function b2WarmStartPrismaticJoint(baseAddress: usize, context: b2
 }
 
 @noinline
-export unsafe function b2SolvePrismaticJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
+export function b2SolvePrismaticJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_prismaticJoint);

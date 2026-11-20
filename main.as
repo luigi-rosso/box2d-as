@@ -298,7 +298,7 @@ export class Main extends Layout {
 
 	// ---- drawing ----------------------------------------------------------
 
-	override unsafe draw(renderer: Renderer): void {
+	override draw(renderer: Renderer): void {
 		let t0 = clock();
 		let scene = this.scene;
 		// The geometric mover is a query shape, not a body, so the scene's bodies do not include it

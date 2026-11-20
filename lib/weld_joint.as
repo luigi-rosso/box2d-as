@@ -39,7 +39,7 @@ import {
 
 // B2_WELD_BLOCK_SOLVE is 0 in C; the block solve path is not ported
 
-export unsafe function b2WeldJoint_SetLinearHertz(jointId: b2JointId, hertz: f32): void {
+export function b2WeldJoint_SetLinearHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2WeldJoint_SetLinearHertz")) return;
 
 	B2_ASSERT(b2IsValidFloat(hertz) && hertz >= 0.0);
@@ -48,13 +48,13 @@ export unsafe function b2WeldJoint_SetLinearHertz(jointId: b2JointId, hertz: f32
 	joint.linearHertz = hertz;
 }
 
-export unsafe function b2WeldJoint_GetLinearHertz(jointId: b2JointId): f32 {
+export function b2WeldJoint_GetLinearHertz(jointId: b2JointId): f32 {
 	let joints = b2WeldJointAt(b2GetJointSimAddressCheckType(jointId, b2_weldJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.linearHertz;
 }
 
-export unsafe function b2WeldJoint_SetLinearDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
+export function b2WeldJoint_SetLinearDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(dampingRatio), "b2IsValidFloat( dampingRatio )", "b2WeldJoint_SetLinearDampingRatio")) {
 		return;
 	}
@@ -65,13 +65,13 @@ export unsafe function b2WeldJoint_SetLinearDampingRatio(jointId: b2JointId, dam
 	joint.linearDampingRatio = dampingRatio;
 }
 
-export unsafe function b2WeldJoint_GetLinearDampingRatio(jointId: b2JointId): f32 {
+export function b2WeldJoint_GetLinearDampingRatio(jointId: b2JointId): f32 {
 	let joints = b2WeldJointAt(b2GetJointSimAddressCheckType(jointId, b2_weldJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.linearDampingRatio;
 }
 
-export unsafe function b2WeldJoint_SetAngularHertz(jointId: b2JointId, hertz: f32): void {
+export function b2WeldJoint_SetAngularHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2WeldJoint_SetAngularHertz")) return;
 
 	B2_ASSERT(b2IsValidFloat(hertz) && hertz >= 0.0);
@@ -80,13 +80,13 @@ export unsafe function b2WeldJoint_SetAngularHertz(jointId: b2JointId, hertz: f3
 	joint.angularHertz = hertz;
 }
 
-export unsafe function b2WeldJoint_GetAngularHertz(jointId: b2JointId): f32 {
+export function b2WeldJoint_GetAngularHertz(jointId: b2JointId): f32 {
 	let joints = b2WeldJointAt(b2GetJointSimAddressCheckType(jointId, b2_weldJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.angularHertz;
 }
 
-export unsafe function b2WeldJoint_SetAngularDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
+export function b2WeldJoint_SetAngularDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(dampingRatio), "b2IsValidFloat( dampingRatio )", "b2WeldJoint_SetAngularDampingRatio")) {
 		return;
 	}
@@ -97,7 +97,7 @@ export unsafe function b2WeldJoint_SetAngularDampingRatio(jointId: b2JointId, da
 	joint.angularDampingRatio = dampingRatio;
 }
 
-export unsafe function b2WeldJoint_GetAngularDampingRatio(jointId: b2JointId): f32 {
+export function b2WeldJoint_GetAngularDampingRatio(jointId: b2JointId): f32 {
 	let joints = b2WeldJointAt(b2GetJointSimAddressCheckType(jointId, b2_weldJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.angularDampingRatio;
@@ -215,7 +215,7 @@ export function b2PrepareWeldJoint(baseAddress: usize, context: b2StepContext): 
 }
 
 @noinline
-export unsafe function b2WarmStartWeldJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2WarmStartWeldJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	let mA: f32 = base.invMassA;
@@ -252,7 +252,7 @@ export unsafe function b2WarmStartWeldJoint(baseAddress: usize, context: b2StepC
 }
 
 @noinline
-export unsafe function b2SolveWeldJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
+export function b2SolveWeldJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_weldJoint);

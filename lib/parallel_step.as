@@ -39,8 +39,6 @@ export class b2ParallelStats {
 	// The most parts a solver call got, which can be fewer than Parallel.size()
 	parts: i32 = 0;
 	solves: i32 = 0;
-	// How many times a long stage wait had every part sync
-	stageSyncs: i32 = 0;
 	collides: i32 = 0;
 	finalizes: i32 = 0;
 	deferredBodies: i64 = 0;
@@ -65,7 +63,7 @@ let b2_partLimit = B2_MAX_WORKERS;
 
 // C's solver task with a part as each worker: part 0 orchestrates the stages and the others claim their blocks. The
 // last part first builds a deferred tree update, as C's tree task overlaps the solver, and joins at the stage it finds.
-@parallel.inplace export unsafe function b2ParallelSolverTask(part: Part, context: b2StepContext): void {
+@parallel.inplace export function b2ParallelSolverTask(part: Part, context: b2StepContext): void {
 	if (part.index == 0 && part.count > b2_parallelStats.parts) {
 		b2_parallelStats.parts = part.count;
 	}
@@ -83,12 +81,11 @@ function b2ParallelSolve(context: b2StepContext): bool {
 
 	Parallel.runUpTo(b2MaxParts(world), b2ParallelSolverTask, context);
 	b2_parallelStats.solves += 1;
-	b2_parallelStats.stageSyncs += context.syncRequests.value;
 	return true;
 }
 
 // b2ParallelFor's blocks over the awake contacts, claimed by whichever part asks next
-@parallel.inplace export unsafe function b2ParallelCollideTask(part: Part, context: b2StepContext, contactCount: i32, blockSize: i32): void {
+@parallel.inplace export function b2ParallelCollideTask(part: Part, context: b2StepContext, contactCount: i32, blockSize: i32): void {
 	let workerIndex = part.index;
 	for (let start = part.claim(contactCount, blockSize); start < contactCount; start = part.claim(contactCount, blockSize)) {
 		b2CollideTask(start, min(start + blockSize, contactCount), workerIndex, context);
@@ -118,7 +115,7 @@ function b2ParallelCollide(context: b2StepContext, contactCount: i32): bool {
 	return true;
 }
 
-@parallel.inplace export unsafe function b2ParallelFinalizeTask(part: Part, context: b2StepContext, bodyCount: i32, blockSize: i32): void {
+@parallel.inplace export function b2ParallelFinalizeTask(part: Part, context: b2StepContext, bodyCount: i32, blockSize: i32): void {
 	let workerIndex = part.index;
 	for (let start = part.claim(bodyCount, blockSize); start < bodyCount; start = part.claim(bodyCount, blockSize)) {
 		b2FinalizeBodiesTask(start, min(start + blockSize, bodyCount), workerIndex, context);
@@ -223,8 +220,7 @@ export function b2SetParallelLimit(parts: i32): void {
 
 // Fields for a bench's result line
 export function b2ParallelReport(): string {
-	return " parts=" + b2_parallelStats.parts.toString() + " parSolves=" + b2_parallelStats.solves.toString() +
-		" parStageSyncs=" + b2_parallelStats.stageSyncs.toString() + " parCollides=" +
+	return " parts=" + b2_parallelStats.parts.toString() + " parSolves=" + b2_parallelStats.solves.toString() + " parCollides=" +
 		b2_parallelStats.collides.toString() + " parFinalizes=" + b2_parallelStats.finalizes.toString() + " parDeferredBodies=" + b2_parallelStats.deferredBodies.toString() + " parPairs=" + b2_parallelStats.pairs.toString() +
 		" parPairOverflows=" + b2_parallelStats.pairOverflows.toString();
 }

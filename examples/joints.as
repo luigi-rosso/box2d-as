@@ -38,7 +38,7 @@ export class JointsResult {
 	elevatorTranslation: f32 = 0;
 }
 
-export unsafe function joints(): JointsResult {
+export function joints(): JointsResult {
 	let worldId = b2CreateWorld(b2DefaultWorldDef());
 	let groundId = b2CreateBody(worldId, b2DefaultBodyDef());
 

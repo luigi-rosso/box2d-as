@@ -42,7 +42,7 @@ import {
 	b2WriteStateVelocity,
 } from "./joint";
 
-export unsafe function b2DistanceJoint_SetRestLength(jointId: b2JointId, length: f32): void {
+export function b2DistanceJoint_SetRestLength(jointId: b2JointId, length: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(length), "b2IsValidFloat( length )", "b2DistanceJoint_SetRestLength")) {
 		return;
 	}
@@ -60,7 +60,7 @@ export unsafe function b2DistanceJoint_SetRestLength(jointId: b2JointId, length:
 	joint.upperImpulse = 0.0;
 }
 
-export unsafe function b2DistanceJoint_GetRestLength(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetRestLength(jointId: b2JointId): f32 {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -70,7 +70,7 @@ export unsafe function b2DistanceJoint_GetRestLength(jointId: b2JointId): f32 {
 	return baseDistance.length;
 }
 
-export unsafe function b2DistanceJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
+export function b2DistanceJoint_EnableLimit(jointId: b2JointId, enableLimit: bool): void {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -80,13 +80,13 @@ export unsafe function b2DistanceJoint_EnableLimit(jointId: b2JointId, enableLim
 	baseDistance.enableLimit = enableLimit;
 }
 
-export unsafe function b2DistanceJoint_IsLimitEnabled(jointId: b2JointId): bool {
+export function b2DistanceJoint_IsLimitEnabled(jointId: b2JointId): bool {
 	let joints = b2DistanceJointAt(b2GetJointSimAddressCheckType(jointId, b2_distanceJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableLimit;
 }
 
-export unsafe function b2DistanceJoint_SetLimits(jointId: b2JointId, minLength: f32, maxLength: f32): void {
+export function b2DistanceJoint_SetLimits(jointId: b2JointId, minLength: f32, maxLength: f32): void {
 	const fn = "b2DistanceJoint_SetLimits";
 	if (!b2CheckJointInput(b2IsValidFloat(minLength), "b2IsValidFloat( minLength )", fn)) return;
 	if (!b2CheckJointInput(b2IsValidFloat(maxLength), "b2IsValidFloat( maxLength )", fn)) return;
@@ -104,7 +104,7 @@ export unsafe function b2DistanceJoint_SetLimits(jointId: b2JointId, minLength: 
 	joint.maxLength = b2MaxFloat(minLength, maxLength);
 }
 
-export unsafe function b2DistanceJoint_GetLowerLimit(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetLowerLimit(jointId: b2JointId): f32 {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -114,7 +114,7 @@ export unsafe function b2DistanceJoint_GetLowerLimit(jointId: b2JointId): f32 {
 	return baseDistance.minLength;
 }
 
-export unsafe function b2DistanceJoint_GetUpperLimit(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetUpperLimit(jointId: b2JointId): f32 {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -124,7 +124,7 @@ export unsafe function b2DistanceJoint_GetUpperLimit(jointId: b2JointId): f32 {
 	return baseDistance.maxLength;
 }
 
-export unsafe function b2DistanceJoint_GetCurrentLength(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetCurrentLength(jointId: b2JointId): f32 {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	ref base = sims[b2GetJointLocalIndex(jointId)];
 
@@ -146,7 +146,7 @@ export unsafe function b2DistanceJoint_GetCurrentLength(jointId: b2JointId): f32
 	return length;
 }
 
-export unsafe function b2DistanceJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
+export function b2DistanceJoint_EnableSpring(jointId: b2JointId, enableSpring: bool): void {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -156,7 +156,7 @@ export unsafe function b2DistanceJoint_EnableSpring(jointId: b2JointId, enableSp
 	baseDistance.enableSpring = enableSpring;
 }
 
-export unsafe function b2DistanceJoint_IsSpringEnabled(jointId: b2JointId): bool {
+export function b2DistanceJoint_IsSpringEnabled(jointId: b2JointId): bool {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -166,7 +166,7 @@ export unsafe function b2DistanceJoint_IsSpringEnabled(jointId: b2JointId): bool
 	return baseDistance.enableSpring;
 }
 
-export unsafe function b2DistanceJoint_SetSpringForceRange(jointId: b2JointId, lowerForce: f32, upperForce: f32): void {
+export function b2DistanceJoint_SetSpringForceRange(jointId: b2JointId, lowerForce: f32, upperForce: f32): void {
 	const fn = "b2DistanceJoint_SetSpringForceRange";
 	if (!b2CheckJointInput(b2IsValidFloat(lowerForce), "b2IsValidFloat( lowerForce )", fn)) return;
 	if (!b2CheckJointInput(b2IsValidFloat(upperForce), "b2IsValidFloat( upperForce )", fn)) return;
@@ -182,7 +182,7 @@ export unsafe function b2DistanceJoint_SetSpringForceRange(jointId: b2JointId, l
 	baseDistance.upperSpringForce = b2MaxFloat(lowerForce, upperForce);
 }
 
-export unsafe function b2DistanceJoint_GetSpringForceRange(jointId: b2JointId, lowerForce: ref f32, upperForce: ref f32): void {
+export function b2DistanceJoint_GetSpringForceRange(jointId: b2JointId, lowerForce: ref f32, upperForce: ref f32): void {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -193,7 +193,7 @@ export unsafe function b2DistanceJoint_GetSpringForceRange(jointId: b2JointId, l
 	upperForce = baseDistance.upperSpringForce;
 }
 
-export unsafe function b2DistanceJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
+export function b2DistanceJoint_SetSpringHertz(jointId: b2JointId, hertz: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(hertz), "b2IsValidFloat( hertz )", "b2DistanceJoint_SetSpringHertz")) return;
 
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
@@ -205,7 +205,7 @@ export unsafe function b2DistanceJoint_SetSpringHertz(jointId: b2JointId, hertz:
 	baseDistance.hertz = hertz;
 }
 
-export unsafe function b2DistanceJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
+export function b2DistanceJoint_SetSpringDampingRatio(jointId: b2JointId, dampingRatio: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(dampingRatio), "b2IsValidFloat( dampingRatio )", "b2DistanceJoint_SetSpringDampingRatio")) {
 		return;
 	}
@@ -219,7 +219,7 @@ export unsafe function b2DistanceJoint_SetSpringDampingRatio(jointId: b2JointId,
 	baseDistance.dampingRatio = dampingRatio;
 }
 
-export unsafe function b2DistanceJoint_GetSpringHertz(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetSpringHertz(jointId: b2JointId): f32 {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -229,7 +229,7 @@ export unsafe function b2DistanceJoint_GetSpringHertz(jointId: b2JointId): f32 {
 	return baseDistance.hertz;
 }
 
-export unsafe function b2DistanceJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetSpringDampingRatio(jointId: b2JointId): f32 {
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
 	let baseView = b2JointSimAt(baseAddress);
@@ -239,7 +239,7 @@ export unsafe function b2DistanceJoint_GetSpringDampingRatio(jointId: b2JointId)
 	return baseDistance.dampingRatio;
 }
 
-export unsafe function b2DistanceJoint_GetSpringForce(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetSpringForce(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
@@ -254,7 +254,7 @@ export unsafe function b2DistanceJoint_GetSpringForce(jointId: b2JointId): f32 {
 	return 0.0;
 }
 
-export unsafe function b2DistanceJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
+export function b2DistanceJoint_EnableMotor(jointId: b2JointId, enableMotor: bool): void {
 	let joints = b2DistanceJointAt(b2GetJointSimAddressCheckType(jointId, b2_distanceJoint));
 	ref joint = unchecked(joints[0]);
 	if (enableMotor != joint.enableMotor) {
@@ -263,13 +263,13 @@ export unsafe function b2DistanceJoint_EnableMotor(jointId: b2JointId, enableMot
 	}
 }
 
-export unsafe function b2DistanceJoint_IsMotorEnabled(jointId: b2JointId): bool {
+export function b2DistanceJoint_IsMotorEnabled(jointId: b2JointId): bool {
 	let joints = b2DistanceJointAt(b2GetJointSimAddressCheckType(jointId, b2_distanceJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.enableMotor;
 }
 
-export unsafe function b2DistanceJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
+export function b2DistanceJoint_SetTargetMotorSpeed(jointId: b2JointId, motorSpeed: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(motorSpeed), "b2IsValidFloat( motorSpeed )", "b2DistanceJoint_SetTargetMotorSpeed")) {
 		return;
 	}
@@ -279,13 +279,13 @@ export unsafe function b2DistanceJoint_SetTargetMotorSpeed(jointId: b2JointId, m
 	joint.motorSpeed = motorSpeed;
 }
 
-export unsafe function b2DistanceJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetTargetMotorSpeed(jointId: b2JointId): f32 {
 	let joints = b2DistanceJointAt(b2GetJointSimAddressCheckType(jointId, b2_distanceJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.motorSpeed;
 }
 
-export unsafe function b2DistanceJoint_GetCurrentMotorForce(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetCurrentMotorForce(jointId: b2JointId): f32 {
 	let world = b2GetWorld(jointId.world0);
 	let sims = b2GetJointSimViewCheckType(jointId, b2_distanceJoint);
 	let baseAddress = b2JointSimAddress(sims, b2GetJointLocalIndex(jointId));
@@ -296,7 +296,7 @@ export unsafe function b2DistanceJoint_GetCurrentMotorForce(jointId: b2JointId):
 	return world.inv_h * baseDistance.motorImpulse;
 }
 
-export unsafe function b2DistanceJoint_SetMaxMotorForce(jointId: b2JointId, force: f32): void {
+export function b2DistanceJoint_SetMaxMotorForce(jointId: b2JointId, force: f32): void {
 	if (!b2CheckJointInput(b2IsValidFloat(force), "b2IsValidFloat( force )", "b2DistanceJoint_SetMaxMotorForce")) return;
 
 	let joints = b2DistanceJointAt(b2GetJointSimAddressCheckType(jointId, b2_distanceJoint));
@@ -304,7 +304,7 @@ export unsafe function b2DistanceJoint_SetMaxMotorForce(jointId: b2JointId, forc
 	joint.maxMotorForce = force;
 }
 
-export unsafe function b2DistanceJoint_GetMaxMotorForce(jointId: b2JointId): f32 {
+export function b2DistanceJoint_GetMaxMotorForce(jointId: b2JointId): f32 {
 	let joints = b2DistanceJointAt(b2GetJointSimAddressCheckType(jointId, b2_distanceJoint));
 	ref joint = unchecked(joints[0]);
 	return joint.maxMotorForce;
@@ -414,7 +414,7 @@ export function b2PrepareDistanceJoint(baseAddress: usize, context: b2StepContex
 }
 
 @noinline
-export unsafe function b2WarmStartDistanceJoint(baseAddress: usize, context: b2StepContext): void {
+export function b2WarmStartDistanceJoint(baseAddress: usize, context: b2StepContext): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_distanceJoint);
@@ -452,7 +452,7 @@ export unsafe function b2WarmStartDistanceJoint(baseAddress: usize, context: b2S
 }
 
 @noinline
-export unsafe function b2SolveDistanceJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
+export function b2SolveDistanceJoint(baseAddress: usize, context: b2StepContext, useBias: bool): void {
 	let baseView = b2JointSimAt(baseAddress);
 	ref base = unchecked(baseView[0]);
 	if (B2_ASSERT_ENABLED) B2_ASSERT(base.type == b2_distanceJoint);

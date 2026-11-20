@@ -157,7 +157,7 @@ export function Record_Length(): i32 {
 }
 
 // Valid until the next frame boundary, which may move the buffer
-export unsafe function Record_Pointer(): usize {
+export function Record_Pointer(): usize {
 	return g_words.dataStart;
 }
 

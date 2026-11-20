@@ -31,7 +31,7 @@ Tracy zones, the `B2_WELD_BLOCK_SOLVE` branch (0 in C) and `#if 0` `b2WheelJoint
 refuses a `ref` into an `Array` element. The port binds C's `b2JointSim*` in place through a view:
 
 ```as
-@inline export unsafe function b2JointSimView(sims: Array<b2JointSim>): StaticArray<b2JointSim> {
+@inline export function b2JointSimView(sims: Array<b2JointSim>): StaticArray<b2JointSim> {
 	return changetype<StaticArray<b2JointSim>>(b2ArrayData(sims));
 }
 let joints = b2JointSimView(color.jointSims);
@@ -69,7 +69,7 @@ ref joint = sims[b2GetJointLocalIndex(jointId)];
   `b2SolveJoint(joint: ref, context, useBias)`, `b2PrepareJoints_Overflow(context)`,
   `b2WarmStartJoints_Overflow(context)`, `b2SolveJoints_Overflow(context, useBias)`,
   `b2PrepareJointsTask(block: b2SolverBlock, context)`, `b2WarmStartJointsTask(block, context)`,
-  `b2SolveJointsTask(block, context, useBias, workerIndex)`. All `unsafe`.
+  `b2SolveJointsTask(block, context, useBias, workerIndex)`.
 - `b2GetJointReaction(sim: ref b2JointSim, invTimeStep, force: ref f32, torque: ref f32)`; pass struct
   leaves (`r.x`, `r.y` of a local `b2Vec2`), since rasc refuses a ref to a primitive local.
 - Per type `b2Get<X>JointForce(world, base: ref b2JointSim): b2Vec2`, `b2Get<X>JointTorque(...): f32`.
